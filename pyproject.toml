@@ -1,0 +1,45 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "slidecast"
+version = "0.1.0"
+description = "Turn a list of HTML slides + narration into a narrated MP4. Headless-browser screenshots, pluggable text-to-speech, ffmpeg stitching. Bring your own slide design and voice."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Vinay Vobbilichetty" }]
+keywords = ["video", "tts", "slides", "screencast", "ffmpeg", "playwright", "narration", "kokoro"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Multimedia :: Video",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+]
+dependencies = [
+    "requests>=2",
+]
+
+[project.optional-dependencies]
+playwright = ["playwright>=1.40"]
+gtts = ["gtts>=2.3"]
+ffmpeg = ["imageio-ffmpeg>=0.4"]
+yaml = ["pyyaml>=6"]
+dev = ["pytest>=7", "pyyaml>=6"]
+
+[project.scripts]
+slidecast = "slidecast.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/vinayvobbili/slidecast"
+Source = "https://github.com/vinayvobbili/slidecast"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/slidecast"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
