@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "slidecast"
-version = "0.1.0"
+version = "0.2.0"
 description = "Turn a list of HTML slides + narration into a narrated MP4. Headless-browser screenshots, pluggable text-to-speech, ffmpeg stitching. Bring your own slide design and voice."
 readme = "README.md"
 requires-python = ">=3.10"
