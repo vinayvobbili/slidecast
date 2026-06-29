@@ -43,6 +43,8 @@ def test_master_with_music_loops_attenuates_and_mixes():
     assert "atrim=0:12.500" in fc  # bed trimmed to total length
     assert "afade=t=out:st=11.000:d=1.500" in fc  # 12.5 - 1.5
     assert "amix=inputs=2:duration=first:dropout_transition=0:normalize=0" in fc
+    # both legs upmixed to stereo so the mix isn't collapsed to mono by the mono narration
+    assert fc.count("aformat=channel_layouts=stereo") == 2
     assert cmd[cmd.index("-map") + 1] == "[v]"
 
 

@@ -179,15 +179,19 @@ def master(
     if music is not None:
         cmd += ["-i", str(video), "-stream_loop", "-1", "-i", str(music)]
         afade_out_st = max(total - music_fade, 0.0)
+        # Upmix both inputs to stereo before mixing. Kokoro narration is mono, and
+        # amix otherwise collapses the whole mix to mono — losing the music bed's
+        # stereo image. aformat duplicates a mono source across L+R.
         bed = (
             f"[1:a]atrim=0:{total:.3f},asetpts=PTS-STARTPTS,"
             f"volume={music_volume},"
             f"afade=t=in:st=0:d={music_fade:.3f},"
-            f"afade=t=out:st={afade_out_st:.3f}:d={music_fade:.3f}[bed]"
+            f"afade=t=out:st={afade_out_st:.3f}:d={music_fade:.3f},"
+            f"aformat=channel_layouts=stereo[bed]"
         )
         filt = (
             f"[0:v]{vfilter}[v];"
-            f"[0:a]apad=pad_dur={end_hold:.3f}[narr];"
+            f"[0:a]apad=pad_dur={end_hold:.3f},aformat=channel_layouts=stereo[narr];"
             f"{bed};"
             f"[narr][bed]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[a]"
         )

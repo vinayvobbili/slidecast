@@ -44,7 +44,7 @@ from .tts import (
 )
 from .video import build_segment, concat, master, poster, probe_duration
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 __all__ = [
     "Slide",
