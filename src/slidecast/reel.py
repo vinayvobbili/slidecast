@@ -79,10 +79,22 @@ class Reel:
         workdir: Optional[Path] = None,
         ffmpeg: Optional[str] = None,
         on_progress: Optional[ProgressHook] = None,
+        music: Optional[Path] = None,
+        fade_in: float = 0.0,
+        fade_out: float = 0.0,
+        end_hold: float = 0.0,
+        music_volume: float = 0.08,
+        music_fade: float = 1.5,
     ) -> Path:
         """Render the whole reel to ``out_path`` (an .mp4). Returns the path.
 
         If ``make_poster`` is set, also writes ``<stem>_poster.jpg`` next to it.
+
+        When ``music`` is given or any of ``fade_in`` / ``fade_out`` / ``end_hold``
+        is non-zero, the concatenated reel is run through :func:`video.master` for
+        a finished cut — fade in/out, a frozen end-hold, and an optional looped,
+        attenuated music bed. With all of them at their defaults the reel is
+        concatenated straight to ``out_path`` (the original behaviour).
         """
         if not self.slides:
             raise ValueError("Reel has no slides")
@@ -113,7 +125,19 @@ class Reel:
                         duration=duration, ffmpeg=ffmpeg,
                     )
                     segments.append(seg)
-            _video.concat(segments, out_path, ffmpeg=ffmpeg)
+            need_master = bool(music) or fade_in > 0 or fade_out > 0 or end_hold > 0
+            if need_master:
+                raw = work / "_concat.mp4"
+                _video.concat(segments, raw, ffmpeg=ffmpeg)
+                _video.master(
+                    raw, out_path,
+                    music=Path(music) if music else None,
+                    fade_in=fade_in, fade_out=fade_out, end_hold=end_hold,
+                    music_volume=music_volume, music_fade=music_fade,
+                    ffmpeg=ffmpeg,
+                )
+            else:
+                _video.concat(segments, out_path, ffmpeg=ffmpeg)
             if make_poster:
                 _video.poster(out_path, out_path.with_name(out_path.stem + "_poster.jpg"),
                               ffmpeg=ffmpeg)

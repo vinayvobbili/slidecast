@@ -42,7 +42,7 @@ from .tts import (
     apply_phonetic,
     wav_duration,
 )
-from .video import build_segment, concat, poster
+from .video import build_segment, concat, master, poster, probe_duration
 
 __version__ = "0.1.0"
 
@@ -60,7 +60,9 @@ __all__ = [
     "wav_duration",
     "build_segment",
     "concat",
+    "master",
     "poster",
+    "probe_duration",
     "find_ffmpeg",
     "FFmpegNotFound",
     "__version__",
