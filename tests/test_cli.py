@@ -16,6 +16,7 @@ def test_build_tts_variants():
     assert isinstance(_build_tts({"provider": "silent"}), SilentTTS)
     assert isinstance(_build_tts({"provider": "kokoro", "voice": "af_x"}), KokoroTTS)
     assert isinstance(_build_tts({"provider": "gtts", "tld": "co.uk"}), GTTSTTS)
+    assert _build_tts({"provider": "say", "voice": "Daniel"}).voice == "Daniel"
 
 
 def test_build_reel_inline_and_file_html(tmp_path):
@@ -34,6 +35,16 @@ def test_build_reel_inline_and_file_html(tmp_path):
     assert reel.slides[0].html == "<h1>from file</h1>"
     assert reel.slides[0].tail_pad == 0.4
     assert reel.slides[1].min_duration == 2
+
+
+def test_build_reel_video_entries_become_clips(tmp_path):
+    from slidecast import Clip
+
+    spec = {"slides": [{"video": "demo.mp4", "narration": "watch", "tail_pad": 0.5}]}
+    reel = _build_reel(spec, tmp_path)
+    clip = reel.slides[0]
+    assert isinstance(clip, Clip)
+    assert clip.video == tmp_path / "demo.mp4" and clip.narration == "watch" and clip.tail_pad == 0.5
 
 
 def test_main_render_end_to_end(monkeypatch, tmp_path, capsys):

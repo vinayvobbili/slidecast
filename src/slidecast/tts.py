@@ -9,12 +9,13 @@ or ``None`` if it can't measure it (e.g. it emitted MP3 and you don't want a
 probe dependency). When the duration is unknown, the video builder lets the audio
 drive the segment length (ffmpeg ``-shortest``) instead of padding to a target.
 
-Three providers ship in the box:
+Four providers ship in the box:
 
 * :class:`KokoroTTS` — any OpenAI-compatible ``/v1/audio/speech`` endpoint
   (Kokoro, OpenAI, LocalAI, …). Defaults to WAV so duration is measurable.
 * :class:`GTTSTTS` — Google Translate TTS via the ``gtts`` package (MP3, no
   measurable duration → ``-shortest``).
+* :class:`MacSayTTS` — macOS's built-in ``say``: offline, no dependencies, WAV.
 * :class:`SilentTTS` — a silent track of a fixed length. No dependencies; used
   for silent slides, muted reels, and deterministic tests.
 
@@ -142,3 +143,34 @@ class GTTSTTS:
         spoken = apply_phonetic(text, self.phonetic)
         gTTS(text=spoken, lang=self.lang, tld=self.tld, slow=self.slow).save(str(out_path))
         return None
+
+
+class MacSayTTS:
+    """macOS's built-in speech synthesizer (``say``). Offline, no dependencies, WAV.
+
+    ``voice`` is any name from ``say -v '?'``. The standard voices are serviceable.
+    Premium ones such as "Ava (Premium)" or "Zoe (Premium)" sound far better and
+    are a free download under System Settings › Accessibility › Spoken Content.
+    ``rate`` is words per minute (``say`` defaults to about 175).
+    """
+
+    def __init__(self, voice: str = "Samantha", rate: Optional[int] = None,
+                 sample_rate: int = 24000, phonetic: Optional[Dict[str, str]] = None,
+                 runner=None):
+        self.voice = voice
+        self.rate = rate
+        self.sample_rate = int(sample_rate)
+        self.phonetic = phonetic
+        self.runner = runner
+
+    def synthesize(self, text: str, out_path: Path) -> Optional[float]:
+        import subprocess
+
+        cmd = ["say", "-v", self.voice, "-o", str(out_path),
+               "--file-format=WAVE", f"--data-format=LEI16@{self.sample_rate}"]
+        if self.rate:
+            cmd += ["-r", str(self.rate)]
+        # Text goes in on stdin, so nothing in it can be read as an option.
+        (self.runner or subprocess.run)(cmd, input=apply_phonetic(text, self.phonetic),
+                                        text=True, check=True)
+        return wav_duration(out_path)

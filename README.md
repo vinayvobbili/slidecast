@@ -1,6 +1,6 @@
 # slidecast
 
-Turn a list of HTML slides + narration into a narrated MP4.
+Turn a list of HTML slides and recorded clips, plus narration, into a narrated MP4.
 
 You bring the slide design — any HTML you like — and the words. slidecast
 screenshots each slide with a headless browser, narrates it with a pluggable
@@ -41,6 +41,21 @@ A slide with empty narration becomes a silent hold (`min_duration` seconds). Whe
 the TTS provider reports a clip duration, the segment is padded to fit the speech
 exactly; when it can't (e.g. MP3), the audio drives the length.
 
+### Recorded clips
+
+Mix screen recordings in with the slides. A clip plays through; if its narration
+runs longer, the last frame holds until the voice finishes. It's letterboxed to
+the reel's size, never stretched, and its own audio is replaced by the narration.
+
+```python
+reel.add("<!doctype html><h1>The demo</h1>", "Here's how it works.")
+reel.add_clip("scan.webm", "Click Scan, and every question gets a cited draft.")
+reel.add_clip("fill.webm", "Then fill the form.", tail_pad=0.6)
+```
+
+Record the clips any way you like: Playwright's `record_video_dir`, a
+screenshot sequence encoded with ffmpeg, or a screen recorder.
+
 ## CLI
 
 ```
@@ -52,11 +67,13 @@ width: 1280
 height: 720
 fps: 25
 tts:
-  provider: kokoro        # kokoro | gtts | silent
+  provider: kokoro        # kokoro | gtts | say | silent
   url: http://127.0.0.1:8021/v1/audio/speech
   voice: af_heart
   response_format: wav
 slides:
+  - video: demo.mp4       # a recorded clip, relative to the spec
+    narration: "Watch it run."
   - html_file: intro.html
     narration: "Before any of this, here's why it matters."
     tail_pad: 0.8
@@ -72,6 +89,9 @@ slides:
 - `KokoroTTS` — any OpenAI-compatible `/v1/audio/speech` endpoint (Kokoro,
   OpenAI, LocalAI, …). Defaults to WAV so the clip length is measurable.
 - `GTTSTTS` — Google Translate TTS (`gtts`).
+- `MacSayTTS` — macOS's built-in `say`: offline, no dependencies, WAV. Premium
+  voices (e.g. "Ava (Premium)") are a free download under System Settings ›
+  Accessibility › Spoken Content.
 - `SilentTTS` — a silent track of a fixed length. No dependencies; the default,
   so a reel renders end to end with nothing configured.
 
@@ -83,7 +103,8 @@ without changing the on-screen text.
 - `PlaywrightRenderer` — headless Chromium, launched once per reel (default).
 - `ChromeBinaryRenderer` — drive an existing Chrome/Chromium binary by path.
 
-**ffmpeg steps** are exposed directly (`build_segment`, `concat`, `poster`) and
+**ffmpeg steps** are exposed directly (`build_segment`, `build_clip_segment`,
+`concat`, `master`, `poster`) and
 take an injectable `runner`, so you can compose your own pipeline or test command
 construction without invoking ffmpeg.
 

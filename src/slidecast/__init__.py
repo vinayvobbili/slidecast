@@ -17,37 +17,42 @@ Pieces (all swappable)
 ----------------------
 Model:
     Slide(html, narration="", tail_pad=0.0, min_duration=0.0)
-    Reel(width, height, fps, tts=..., renderer=...).add(...).render(out)
+    Clip(video, narration="", tail_pad=0.0, min_duration=0.0)
+    Reel(width, height, fps, tts=..., renderer=...).add(...).add_clip(...).render(out)
 Text-to-speech (``synthesize(text, path) -> seconds | None``):
     KokoroTTS  — any OpenAI-compatible /v1/audio/speech endpoint
     GTTSTTS    — Google Translate TTS (mp3)
+    MacSayTTS  — macOS `say`, offline (wav)
     SilentTTS  — silent track, no deps (default)
 Renderers (HTML -> PNG, used as a context manager):
     PlaywrightRenderer    — headless Chromium (default)
     ChromeBinaryRenderer  — drive an existing Chrome binary by path
 ffmpeg steps (injectable runner, for direct use/testing):
-    build_segment(...) / concat(...) / poster(...)
+    build_segment(...) / build_clip_segment(...) / concat(...) / poster(...)
     find_ffmpeg() -> path   (PATH, $SLIDECAST_FFMPEG, or imageio-ffmpeg)
 """
 
 from .ffmpeg import FFmpegNotFound, find_ffmpeg
-from .models import Slide
+from .models import Clip, Segment, Slide
 from .reel import Reel
 from .render import ChromeBinaryRenderer, PlaywrightRenderer, Renderer
 from .tts import (
     GTTSTTS,
     KokoroTTS,
+    MacSayTTS,
     SilentTTS,
     TTSProvider,
     apply_phonetic,
     wav_duration,
 )
-from .video import build_segment, concat, master, poster, probe_duration
+from .video import build_clip_segment, build_segment, concat, master, poster, probe_duration
 
-__version__ = "0.2.1"
+__version__ = "0.3.0"
 
 __all__ = [
     "Slide",
+    "Clip",
+    "Segment",
     "Reel",
     "Renderer",
     "PlaywrightRenderer",
@@ -55,10 +60,12 @@ __all__ = [
     "TTSProvider",
     "KokoroTTS",
     "GTTSTTS",
+    "MacSayTTS",
     "SilentTTS",
     "apply_phonetic",
     "wav_duration",
     "build_segment",
+    "build_clip_segment",
     "concat",
     "master",
     "poster",
