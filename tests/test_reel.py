@@ -81,3 +81,50 @@ def test_keep_workdir_retains_intermediates(monkeypatch, tmp_path):
     # the stub PNG + silent WAV survive because workdir was explicit
     assert (work / "s001.png").exists()
     assert (work / "s001.wav").exists()
+
+
+def test_clip_holds_its_last_frame_while_the_narration_finishes(monkeypatch, tmp_path):
+    from slidecast import video
+
+    runner = _patch_video_runner(monkeypatch)
+    monkeypatch.setattr(video, "probe_duration", lambda media, ffmpeg=None: 4.0)
+    renderer = FakeRenderer()
+    reel = Reel(width=1280, height=720, tts=SilentTTS(seconds=6.0), renderer=renderer)
+    reel.add_clip(tmp_path / "demo.webm", "a long explanation", tail_pad=0.5)
+    reel.render(tmp_path / "out.mp4", ffmpeg="ff")
+
+    seg = runner.commands[0]
+    assert seg[seg.index("-t") + 1] == "6.500"
+    assert "tpad=stop_mode=clone:stop_duration=2.500" in seg[seg.index("-filter_complex") + 1]
+    assert not renderer.entered  # clips alone never launch a browser
+
+
+def test_silent_clip_plays_at_its_own_length(monkeypatch, tmp_path):
+    from slidecast import video
+
+    runner = _patch_video_runner(monkeypatch)
+    monkeypatch.setattr(video, "probe_duration", lambda media, ffmpeg=None: 4.0)
+    reel = Reel(renderer=FakeRenderer())
+    reel.add_clip(tmp_path / "demo.webm")
+    reel.render(tmp_path / "out.mp4", ffmpeg="ff")
+    seg = runner.commands[0]
+    assert seg[seg.index("-t") + 1] == "4.000"
+    assert "tpad" not in seg[seg.index("-filter_complex") + 1]
+
+
+def test_clip_with_unmeasured_narration_probes_the_audio(monkeypatch, tmp_path):
+    from slidecast import video
+
+    class Mp3TTS:
+        def synthesize(self, text, out_path):
+            SilentTTS(seconds=1).synthesize("", out_path)
+            return None
+
+    probes = {"demo.webm": 3.0, "s001.wav": 5.0}
+    runner = _patch_video_runner(monkeypatch)
+    monkeypatch.setattr(video, "probe_duration", lambda media, ffmpeg=None: probes[media.name])
+    reel = Reel(tts=Mp3TTS(), renderer=FakeRenderer())
+    reel.add_clip(tmp_path / "demo.webm", "spoken")
+    reel.render(tmp_path / "out.mp4", ffmpeg="ff")
+    seg = runner.commands[0]
+    assert seg[seg.index("-t") + 1] == "5.000"

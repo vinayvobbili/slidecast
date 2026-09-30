@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from slidecast import build_segment, concat, master, poster
+from slidecast import build_clip_segment, build_segment, concat, master, poster
 from tests.fakes import FakeRunner
 
 
@@ -109,3 +109,33 @@ def test_poster_grabs_one_frame():
     cmd = runner.commands[0]
     assert cmd[cmd.index("-frames:v") + 1] == "1"
     assert cmd[-1] == "p.jpg"
+
+
+def test_build_clip_segment_letterboxes_holds_and_replaces_audio():
+    runner = FakeRunner()
+    build_clip_segment(Path("clip.webm"), Path("a.wav"), Path("out.mp4"),
+                       width=1280, height=720, fps=25, duration=9.5, hold=2.0,
+                       ffmpeg="ff", runner=runner)
+    cmd = runner.commands[0]
+    graph = _filter_complex(cmd)
+    assert "force_original_aspect_ratio=decrease" in graph and "pad=1280:720" in graph
+    assert "tpad=stop_mode=clone:stop_duration=2.000" in graph
+    assert "[1:a]apad[a]" in graph  # narration, not the clip's own audio
+    assert cmd[cmd.index("-t") + 1] == "9.500"
+    # Same encoder settings as build_segment, so slides and clips concat with -c copy.
+    assert cmd[cmd.index("-c:v") + 1] == "libx264" and "stillimage" in cmd
+    assert cmd[cmd.index("-r") + 1] == "25"
+
+
+def test_build_clip_segment_without_hold_has_no_tpad():
+    runner = FakeRunner()
+    build_clip_segment(Path("c.mp4"), Path("a.wav"), Path("o.mp4"),
+                       width=640, height=400, duration=3.0, ffmpeg="ff", runner=runner)
+    assert "tpad" not in _filter_complex(runner.commands[0])
+
+
+def test_poster_can_skip_past_a_fade_in():
+    runner = FakeRunner()
+    poster(Path("v.mp4"), Path("p.jpg"), at=0.8, ffmpeg="ff", runner=runner)
+    cmd = runner.commands[0]
+    assert cmd[cmd.index("-ss") + 1] == "0.800" and cmd.index("-ss") < cmd.index("-i")

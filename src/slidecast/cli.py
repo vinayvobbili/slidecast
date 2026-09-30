@@ -8,7 +8,7 @@ A spec is YAML or JSON::
     height: 720
     fps: 25
     tts:
-      provider: kokoro        # kokoro | gtts | silent
+      provider: kokoro        # kokoro | gtts | say | silent
       url: http://127.0.0.1:8021/v1/audio/speech
       voice: af_heart
       response_format: wav
@@ -18,6 +18,8 @@ A spec is YAML or JSON::
         tail_pad: 0.8
       - html: "<!doctype html>..."  # ... or inline HTML
         narration: ""               # empty => silent slide
+      - video: demo.mp4             # a recorded clip; holds its last frame
+        narration: "Here it is."    # until the narration ends
         min_duration: 3
 """
 
@@ -31,7 +33,7 @@ from typing import Any, Dict
 
 from .reel import Reel
 from .render import ChromeBinaryRenderer
-from .tts import GTTSTTS, KokoroTTS, SilentTTS
+from .tts import GTTSTTS, KokoroTTS, MacSayTTS, SilentTTS
 
 
 def _load_spec(path: Path) -> Dict[str, Any]:
@@ -52,6 +54,8 @@ def _build_tts(cfg: Dict[str, Any]):
         return KokoroTTS(**cfg)
     if provider == "gtts":
         return GTTSTTS(**cfg)
+    if provider == "say":
+        return MacSayTTS(**cfg)
     if provider == "silent":
         return SilentTTS(**cfg) if cfg else SilentTTS()
     raise SystemExit(f"Unknown tts provider: {provider!r}")
@@ -69,11 +73,16 @@ def _build_reel(spec: Dict[str, Any], base: Path) -> Reel:
     if chrome:
         reel.renderer = ChromeBinaryRenderer(chrome=chrome)
     for s in spec.get("slides", []):
+        if s.get("video"):
+            reel.add_clip(base / s["video"], s.get("narration", ""),
+                          tail_pad=float(s.get("tail_pad", 0.0)),
+                          min_duration=float(s.get("min_duration", 0.0)))
+            continue
         html = s.get("html")
         if not html and s.get("html_file"):
             html = (base / s["html_file"]).read_text()
         if not html:
-            raise SystemExit("each slide needs 'html' or 'html_file'")
+            raise SystemExit("each slide needs 'html', 'html_file' or 'video'")
         reel.add(html, s.get("narration", ""),
                  tail_pad=float(s.get("tail_pad", 0.0)),
                  min_duration=float(s.get("min_duration", 0.0)))

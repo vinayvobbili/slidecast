@@ -1,4 +1,4 @@
-"""ffmpeg steps: still image + audio -> segment, concat segments, grab a poster.
+"""ffmpeg steps: still image or clip + audio -> segment, concat segments, grab a poster.
 
 Every function takes an injectable ``runner`` (defaults to ``subprocess.run``) and
 an optional ``ffmpeg`` path, so callers can swap in the bundled binary and tests
@@ -52,6 +52,56 @@ def build_segment(
         "-r", str(fps),
         "-c:v", "libx264", "-tune", "stillimage", "-pix_fmt", "yuv420p",
         "-vf", f"scale={width}:{height}",
+        "-c:a", "aac", "-b:a", audio_bitrate,
+        "-movflags", "+faststart",
+        str(out),
+    ]
+    runner(cmd, check=True)
+    return out
+
+
+def build_clip_segment(
+    clip: Path,
+    audio: Path,
+    out: Path,
+    *,
+    width: int,
+    height: int,
+    duration: float,
+    hold: float = 0.0,
+    fps: int = 25,
+    audio_bitrate: str = "192k",
+    ffmpeg: Optional[str] = None,
+    runner=None,
+) -> Path:
+    """Render a recorded clip + narration into a segment that concats with slides.
+
+    The clip is scaled to fit ``width`` x ``height`` (letterboxed, never
+    stretched), resampled to ``fps``, and its last frame is held for ``hold``
+    seconds. The segment is exactly ``duration`` long, with the narration padded
+    by silence to fill it; the clip's own audio is dropped. Encoder settings
+    match :func:`build_segment`, so the two concat losslessly.
+    """
+    ffmpeg = ffmpeg or find_ffmpeg()
+    runner = runner or subprocess.run
+    vchain = [
+        f"scale={width}:{height}:force_original_aspect_ratio=decrease",
+        f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2",
+        "setsar=1",
+        f"fps={fps}",
+    ]
+    if hold > 0:
+        vchain.append(f"tpad=stop_mode=clone:stop_duration={hold:.3f}")
+    vchain.append("format=yuv420p")
+    cmd: List[str] = [
+        ffmpeg, "-y", "-loglevel", "error",
+        "-i", str(clip),
+        "-i", str(audio),
+        "-filter_complex", f"[0:v]{','.join(vchain)}[v];[1:a]apad[a]",
+        "-map", "[v]", "-map", "[a]",
+        "-t", f"{duration:.3f}",
+        "-r", str(fps),
+        "-c:v", "libx264", "-tune", "stillimage", "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", audio_bitrate,
         "-movflags", "+faststart",
         str(out),
@@ -215,15 +265,20 @@ def poster(
     out: Path,
     *,
     quality: int = 3,
+    at: float = 0.0,
     ffmpeg: Optional[str] = None,
     runner=None,
 ) -> Path:
-    """Write the first frame of ``video`` as a JPEG (a <video> poster image)."""
+    """Write the frame at ``at`` seconds (default the first) as a JPEG poster image.
+
+    Pass ``at`` past any fade-in, or the poster comes out dark.
+    """
     ffmpeg = ffmpeg or find_ffmpeg()
     runner = runner or subprocess.run
+    seek = ["-ss", f"{at:.3f}"] if at > 0 else []
     runner(
         [
-            ffmpeg, "-y", "-loglevel", "error",
+            ffmpeg, "-y", "-loglevel", "error", *seek,
             "-i", str(video), "-frames:v", "1", "-q:v", str(quality), str(out),
         ],
         check=True,

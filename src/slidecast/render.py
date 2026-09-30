@@ -36,6 +36,10 @@ class PlaywrightRenderer:
 
     The browser is launched on ``__enter__`` and reused for every ``screenshot``
     call, so rendering a 20-slide reel pays the startup cost once.
+
+    Pass ``browser`` (a Playwright ``Browser``) to render with one you already
+    have, e.g. inside a script that is itself driving Playwright, where starting
+    a second sync Playwright would fail. That browser is borrowed: it's left open.
     """
 
     def __init__(
@@ -44,15 +48,20 @@ class PlaywrightRenderer:
         wait_ms: int = 250,
         wait_until: str = "networkidle",
         launch_args: Sequence[str] = ("--force-color-profile=srgb",),
+        browser=None,
     ):
         self.device_scale_factor = device_scale_factor
         self.wait_ms = wait_ms
         self.wait_until = wait_until
         self.launch_args = list(launch_args)
         self._pw = None
+        self._borrowed = browser
         self._browser = None
 
     def __enter__(self) -> "PlaywrightRenderer":
+        if self._borrowed is not None:
+            self._browser = self._borrowed
+            return self
         from playwright.sync_api import sync_playwright
 
         self._pw = sync_playwright().start()
@@ -60,6 +69,9 @@ class PlaywrightRenderer:
         return self
 
     def __exit__(self, *exc) -> None:
+        if self._borrowed is not None:
+            self._browser = None
+            return
         if self._browser is not None:
             self._browser.close()
             self._browser = None

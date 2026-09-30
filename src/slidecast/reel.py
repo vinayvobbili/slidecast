@@ -1,13 +1,15 @@
-"""The orchestrator: a list of slides in, one narrated MP4 out.
+"""The orchestrator: a list of slides (and recorded clips) in, one narrated MP4 out.
 
 A :class:`Reel` ties the three pluggable pieces together — a renderer (HTML ->
 PNG), a TTS provider (text -> audio + duration), and the ffmpeg steps (segment +
 concat). Per slide it screenshots the HTML, narrates the text, and builds a
-segment whose length fits the speech; then it concatenates every segment.
+segment whose length fits the speech. A clip plays through instead, holding its
+last frame if the speech runs longer. Then every segment is concatenated.
 """
 
 from __future__ import annotations
 
+import contextlib
 import shutil
 import tempfile
 from dataclasses import dataclass, field
@@ -16,12 +18,12 @@ from typing import Callable, List, Optional
 
 from . import video as _video
 from .ffmpeg import find_ffmpeg
-from .models import Slide
+from .models import Clip, Segment, Slide
 from .render import PlaywrightRenderer, Renderer
 from .tts import SilentTTS, TTSProvider
 
-# Called as on_progress(index, total, slide) before each slide is built.
-ProgressHook = Callable[[int, int, Slide], None]
+# Called as on_progress(index, total, segment) before each segment is built.
+ProgressHook = Callable[[int, int, Segment], None]
 
 
 @dataclass
@@ -44,7 +46,7 @@ class Reel:
     tts: TTSProvider = field(default_factory=SilentTTS)
     renderer: Optional[Renderer] = None
     silent_slide_seconds: float = 3.0
-    slides: List[Slide] = field(default_factory=list)
+    slides: List[Segment] = field(default_factory=list)
 
     def add(self, html: str, narration: str = "", *,
             tail_pad: float = 0.0, min_duration: float = 0.0) -> Slide:
@@ -53,6 +55,14 @@ class Reel:
                       tail_pad=tail_pad, min_duration=min_duration)
         self.slides.append(slide)
         return slide
+
+    def add_clip(self, video, narration: str = "", *,
+                 tail_pad: float = 0.0, min_duration: float = 0.0) -> Clip:
+        """Append a recorded clip (e.g. a screencast) narrated like a slide."""
+        clip = Clip(video=video, narration=narration,
+                    tail_pad=tail_pad, min_duration=min_duration)
+        self.slides.append(clip)
+        return clip
 
     def _segment_duration(self, slide: Slide, audio: Path) -> Optional[float]:
         """Narrate ``slide`` into ``audio`` and return the segment's target length.
@@ -70,6 +80,20 @@ class Reel:
             # Provider couldn't measure (e.g. MP3) — audio drives the length.
             return None
         return max(narrated + slide.tail_pad, slide.min_duration)
+
+    def _clip_duration(self, clip: Clip, audio: Path, ffmpeg: str) -> tuple:
+        """Narrate ``clip`` into ``audio``; return (segment length, last-frame hold)."""
+        length = _video.probe_duration(clip.video, ffmpeg=ffmpeg)
+        if clip.narration.strip():
+            spoken = self.tts.synthesize(clip.narration, audio)
+            if spoken is None:
+                spoken = _video.probe_duration(audio, ffmpeg=ffmpeg)
+            spoken += clip.tail_pad
+        else:
+            spoken = 0.0
+            SilentTTS(seconds=max(length, clip.min_duration)).synthesize("", audio)
+        duration = max(length, spoken, clip.min_duration)
+        return duration, duration - length
 
     def render(
         self,
@@ -97,7 +121,7 @@ class Reel:
         concatenated straight to ``out_path`` (the original behaviour).
         """
         if not self.slides:
-            raise ValueError("Reel has no slides")
+            raise ValueError("Reel has no slides or clips")
         out_path = Path(out_path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         ffmpeg = ffmpeg or find_ffmpeg()
@@ -105,7 +129,9 @@ class Reel:
         keep_work = workdir is not None
         work = Path(workdir) if workdir else Path(tempfile.mkdtemp(prefix="slidecast_"))
         work.mkdir(parents=True, exist_ok=True)
-        renderer = self.renderer or PlaywrightRenderer()
+        # A reel of clips alone never needs a browser.
+        needs_browser = any(isinstance(s, Slide) for s in self.slides)
+        renderer = (self.renderer or PlaywrightRenderer()) if needs_browser else contextlib.nullcontext()
 
         segments: List[Path] = []
         total = len(self.slides)
@@ -114,9 +140,18 @@ class Reel:
                 for i, slide in enumerate(self.slides, start=1):
                     if on_progress:
                         on_progress(i, total, slide)
-                    png = work / f"s{i:03d}.png"
                     audio = work / f"s{i:03d}.wav"
                     seg = work / f"s{i:03d}.mp4"
+                    if isinstance(slide, Clip):
+                        duration, hold = self._clip_duration(slide, audio, ffmpeg)
+                        _video.build_clip_segment(
+                            slide.video, audio, seg,
+                            width=self.width, height=self.height, fps=self.fps,
+                            duration=duration, hold=hold, ffmpeg=ffmpeg,
+                        )
+                        segments.append(seg)
+                        continue
+                    png = work / f"s{i:03d}.png"
                     r.screenshot(slide.html, png, width=self.width, height=self.height)
                     duration = self._segment_duration(slide, audio)
                     _video.build_segment(
@@ -139,8 +174,9 @@ class Reel:
             else:
                 _video.concat(segments, out_path, ffmpeg=ffmpeg)
             if make_poster:
+                # Past the fade-in, or the poster is a dark frame.
                 _video.poster(out_path, out_path.with_name(out_path.stem + "_poster.jpg"),
-                              ffmpeg=ffmpeg)
+                              at=fade_in + 0.2 if fade_in > 0 else 0.0, ffmpeg=ffmpeg)
         finally:
             if not keep_work:
                 shutil.rmtree(work, ignore_errors=True)

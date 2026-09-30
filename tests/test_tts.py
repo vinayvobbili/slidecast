@@ -1,4 +1,7 @@
+import shutil
 import wave
+
+import pytest
 
 from slidecast import SilentTTS, apply_phonetic, wav_duration
 from slidecast.tts import KokoroTTS
@@ -74,3 +77,28 @@ def test_kokoro_mp3_reports_unknown_duration(tmp_path):
     out = tmp_path / "out.mp3"
     assert tts.synthesize("hello", out) is None
     assert out.read_bytes() == b"ID3fake-mp3-bytes"
+
+
+def test_mac_say_passes_text_on_stdin_and_measures_the_wav(tmp_path):
+    from slidecast import MacSayTTS
+
+    calls = []
+
+    def runner(cmd, **kwargs):
+        calls.append((cmd, kwargs))
+        SilentTTS(seconds=1.5).synthesize("", cmd[cmd.index("-o") + 1])
+
+    tts = MacSayTTS(voice="Ava (Premium)", rate=180, phonetic={r"\bSOC\b": "sock"}, runner=runner)
+    assert tts.synthesize("-v is not a flag; SOC 2", tmp_path / "a.wav") == pytest.approx(1.5)
+    cmd, kwargs = calls[0]
+    assert cmd[:3] == ["say", "-v", "Ava (Premium)"]
+    assert "--data-format=LEI16@24000" in cmd and cmd[cmd.index("-r") + 1] == "180"
+    assert kwargs["input"] == "-v is not a flag; sock 2"
+
+
+@pytest.mark.skipif(shutil.which("say") is None, reason="macOS `say` not available")
+def test_mac_say_really_speaks(tmp_path):
+    from slidecast import MacSayTTS
+
+    seconds = MacSayTTS().synthesize("Hello.", tmp_path / "hello.wav")
+    assert seconds and 0.2 < seconds < 5
