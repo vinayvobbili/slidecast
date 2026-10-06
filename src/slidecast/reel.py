@@ -25,6 +25,9 @@ from .models import Clip, Music, Segment, Slide, Sting
 from .render import PlaywrightRenderer, Renderer
 from .tts import SilentTTS, TTSProvider
 
+# Seconds of quiet between the last word and the outro sting.
+OUTRO_GAP = 0.3
+
 # Called as on_progress(index, total, segment) before each segment is built.
 ProgressHook = Callable[[int, int, Segment], None]
 
@@ -203,8 +206,14 @@ class Reel:
             lead_in = self.lead_in
             if lead_in is None:
                 lead_in = _video.probe_duration(intro.file, ffmpeg=ffmpeg) if intro else 0.0
+            slides = list(self.slides)
+            if outro is not None and slides[-1].narration.strip():
+                # The outro ends with the reel, so hold the last slide long enough
+                # for it to start after the last word rather than over it.
+                ring = _video.probe_duration(outro.file, ffmpeg=ffmpeg) + OUTRO_GAP
+                slides[-1] = replace(slides[-1], tail_pad=max(slides[-1].tail_pad, ring))
             with renderer as r:
-                for i, slide in enumerate(self.slides, start=1):
+                for i, slide in enumerate(slides, start=1):
                     if on_progress:
                         on_progress(i, total, slide)
                     audio = work / f"s{i:03d}.wav"

@@ -142,8 +142,9 @@ def test_composed_bed_and_stings_mix_into_a_reel(tmp_path):
     reel.add("<h1>one</h1>", "first", tail_pad=2.0)
     out = reel.render(tmp_path / "out.mp4", ffmpeg=FFMPEG, workdir=tmp_path / "work")
 
-    assert probe_duration(out, ffmpeg=FFMPEG) == pytest.approx(4.0, abs=0.15)
-    assert probe_duration(tmp_path / "work" / "music_bed.wav", ffmpeg=FFMPEG) >= 4.0 + 3.0
+    # 1 s lead-in, 1 s voice, then the 5 s outro starts 0.3 s after the last word.
+    assert probe_duration(out, ffmpeg=FFMPEG) == pytest.approx(7.3, abs=0.15)
+    assert probe_duration(tmp_path / "work" / "music_bed.wav", ffmpeg=FFMPEG) >= 7.3 + 3.0
     decoded = subprocess.run([FFMPEG, "-v", "error", "-i", str(out), "-f", "null", "-"],
                              capture_output=True, text=True)
     assert decoded.returncode == 0 and not decoded.stderr.strip()
