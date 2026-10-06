@@ -179,6 +179,12 @@ and uses the defaults; `"compose"` synthesizes one.
 take an injectable `runner`, so you can compose your own pipeline or test command
 construction without invoking ffmpeg.
 
+## Releasing
+
+A `v*` tag publishes to PyPI. `scripts/release.py 0.4.1 -m "what's in it"` bumps the version in
+`pyproject.toml` and `slidecast/__init__.py`, runs the tests, commits, tags, pushes, and waits until PyPI
+has it (`--dry-run` shows the bump first).
+
 ## License
 
 MIT
