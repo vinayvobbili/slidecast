@@ -1,4 +1,5 @@
 import shutil
+import struct
 import wave
 
 import pytest
@@ -102,3 +103,88 @@ def test_mac_say_really_speaks(tmp_path):
 
     seconds = MacSayTTS().synthesize("Hello.", tmp_path / "hello.wav")
     assert seconds and 0.2 < seconds < 5
+
+
+class _Result:
+    def __init__(self, audio, sample_rate=24000):
+        self.audio, self.sample_rate = audio, sample_rate
+
+
+class _FakeKokoro:
+    """Stands in for an mlx-audio Kokoro model: yields two chunks of samples."""
+
+    def __init__(self):
+        self.calls = []
+
+    def generate(self, text, **kwargs):
+        self.calls.append((text, kwargs))
+        yield _Result([0.0, 0.5, -0.5, 2.0] * 6000)  # 1.0 s, with a sample to clip
+        yield _Result([0.25] * 12000)  # 0.5 s
+
+
+def test_mlx_kokoro_loads_once_and_writes_a_measured_wav(tmp_path):
+    from slidecast import MLXKokoroTTS
+
+    model, loads = _FakeKokoro(), []
+    tts = MLXKokoroTTS(voice="am_adam", speed=1.2, phonetic={r"\bSOC\b": "sock"},
+                       loader=lambda name: loads.append(name) or model)
+    assert loads == []  # lazy: no model until there's something to say
+
+    assert tts.synthesize("the SOC desk", tmp_path / "a.wav") == pytest.approx(1.5)
+    assert tts.synthesize("again", tmp_path / "b.wav") == pytest.approx(1.5)
+    assert loads == ["mlx-community/Kokoro-82M-bf16"]
+    text, kwargs = model.calls[0]
+    assert text == "the sock desk"
+    assert kwargs == {"voice": "am_adam", "speed": 1.2, "lang_code": "a"}
+    with wave.open(str(tmp_path / "a.wav")) as w:
+        assert (w.getnchannels(), w.getsampwidth(), w.getframerate()) == (1, 2, 24000)
+        frames = w.readframes(4)
+    assert struct.unpack("<4h", frames) == (0, 16383, -16383, 32767)  # 2.0 clipped
+
+
+def test_mlx_kokoro_explains_how_to_install_it(monkeypatch, tmp_path):
+    import builtins
+
+    from slidecast import MLXKokoroTTS
+
+    real_import = builtins.__import__
+
+    def no_mlx(name, *args, **kwargs):
+        if name.startswith(("mlx_audio", "misaki")):
+            raise ImportError(name)
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", no_mlx)
+    with pytest.raises(ImportError, match=r"pip install 'slidecast\[mlx\]'"):
+        MLXKokoroTTS().synthesize("hello", tmp_path / "a.wav")
+
+
+def test_homebrew_espeak_fills_only_unset_vars_whose_paths_exist():
+    from slidecast.tts import HOMEBREW_ESPEAK, use_homebrew_espeak
+
+    env = {"PHONEMIZER_ESPEAK_LIBRARY": "/my/libespeak.dylib"}
+    applied = use_homebrew_espeak(env, exists=lambda p: True)
+    assert applied == {"ESPEAK_DATA_PATH": HOMEBREW_ESPEAK["ESPEAK_DATA_PATH"]}
+    assert env["PHONEMIZER_ESPEAK_LIBRARY"] == "/my/libespeak.dylib"
+
+    env = {}
+    assert use_homebrew_espeak(env, exists=lambda p: False) == {} and env == {}
+
+
+def _has_mlx_audio():
+    try:
+        import mlx_audio  # noqa: F401
+    except Exception:  # noqa: BLE001 — absent, or present but unusable here
+        return False
+    return True
+
+
+@pytest.mark.skipif(not _has_mlx_audio(), reason="mlx-audio not installed")
+def test_mlx_kokoro_really_speaks(tmp_path):
+    from slidecast import MLXKokoroTTS
+
+    tts = MLXKokoroTTS()
+    seconds = tts.synthesize("Hello from slidecast. The SOC team says hi.", tmp_path / "a.wav")
+    assert 1.0 < seconds < 8
+    assert wav_duration(tmp_path / "a.wav") == pytest.approx(seconds)
+    assert tts.synthesize("Second line.", tmp_path / "b.wav") > 0.3  # model reused

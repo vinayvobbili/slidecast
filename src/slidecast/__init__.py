@@ -24,6 +24,7 @@ Model:
          lead_in=None, loudness=None).add(...).add_clip(...).render(out)
 Text-to-speech (``synthesize(text, path) -> seconds | None``):
     KokoroTTS  — any OpenAI-compatible /v1/audio/speech endpoint
+    MLXKokoroTTS — Kokoro in-process on Apple Silicon (mlx-audio), no server
     GTTSTTS    — Google Translate TTS (mp3)
     MacSayTTS  — macOS `say`, offline (wav)
     SilentTTS  — silent track, no deps (default)
@@ -44,6 +45,7 @@ from .tts import (
     GTTSTTS,
     KokoroTTS,
     MacSayTTS,
+    MLXKokoroTTS,
     SilentTTS,
     TTSProvider,
     apply_phonetic,
@@ -75,6 +77,7 @@ __all__ = [
     "KokoroTTS",
     "GTTSTTS",
     "MacSayTTS",
+    "MLXKokoroTTS",
     "SilentTTS",
     "apply_phonetic",
     "wav_duration",

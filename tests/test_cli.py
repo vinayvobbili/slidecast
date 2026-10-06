@@ -17,6 +17,9 @@ def test_build_tts_variants():
     assert isinstance(_build_tts({"provider": "kokoro", "voice": "af_x"}), KokoroTTS)
     assert isinstance(_build_tts({"provider": "gtts", "tld": "co.uk"}), GTTSTTS)
     assert _build_tts({"provider": "say", "voice": "Daniel"}).voice == "Daniel"
+    mlx = _build_tts({"provider": "mlx", "voice": "bf_emma", "speed": 1.1, "lang_code": "b"})
+    assert (mlx.voice, mlx.speed, mlx.lang_code) == ("bf_emma", 1.1, "b")
+    assert mlx._model is None  # nothing loaded until the first line is spoken
 
 
 def test_build_reel_inline_and_file_html(tmp_path):

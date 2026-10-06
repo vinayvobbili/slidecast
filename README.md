@@ -15,6 +15,7 @@ pip install slidecast              # core (requests only)
 pip install slidecast[playwright]  # default renderer (headless Chromium)
 pip install slidecast[gtts]        # Google Translate TTS
 pip install slidecast[ffmpeg]      # bundled ffmpeg binary (no system install)
+pip install 'slidecast[mlx]'       # Kokoro in-process on Apple Silicon (no TTS server)
 ```
 
 After installing the Playwright extra, fetch the browser once:
@@ -86,7 +87,7 @@ width: 1280
 height: 720
 fps: 25
 tts:
-  provider: kokoro        # kokoro | gtts | say | silent
+  provider: kokoro        # kokoro | mlx | gtts | say | silent
   url: http://127.0.0.1:8021/v1/audio/speech
   voice: af_heart
   response_format: wav
@@ -112,6 +113,14 @@ slides:
 
 - `KokoroTTS` — any OpenAI-compatible `/v1/audio/speech` endpoint (Kokoro,
   OpenAI, LocalAI, …). Defaults to WAV so the clip length is measurable.
+- `MLXKokoroTTS` — Kokoro running in-process on Apple Silicon via `mlx-audio`,
+  so no server is needed: `MLXKokoroTTS(voice="af_heart", speed=1.0, lang_code="a")`,
+  or `tts: {provider: mlx, voice: af_heart}` in YAML. The model
+  (`mlx-community/Kokoro-82M-bf16`) downloads on first use and loads once per
+  reel. If phonemizing fails with an espeak path under `/Users/runner/...` (a
+  path baked into the `espeakng-loader` wheel), run `brew install espeak-ng`.
+  slidecast then points `ESPEAK_DATA_PATH` and `PHONEMIZER_ESPEAK_LIBRARY` at
+  Homebrew's copy itself, unless you've set them.
 - `GTTSTTS` — Google Translate TTS (`gtts`).
 - `MacSayTTS` — macOS's built-in `say`: offline, no dependencies, WAV. Premium
   voices (e.g. "Ava (Premium)") are a free download under System Settings ›

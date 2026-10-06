@@ -8,7 +8,7 @@ A spec is YAML or JSON::
     height: 720
     fps: 25
     tts:
-      provider: kokoro        # kokoro | gtts | say | silent
+      provider: kokoro        # kokoro | mlx | gtts | say | silent
       url: http://127.0.0.1:8021/v1/audio/speech
       voice: af_heart
       response_format: wav
@@ -40,7 +40,7 @@ from typing import Any, Dict
 from .models import Music, Sting
 from .reel import Reel
 from .render import ChromeBinaryRenderer
-from .tts import GTTSTTS, KokoroTTS, MacSayTTS, SilentTTS
+from .tts import GTTSTTS, KokoroTTS, MacSayTTS, MLXKokoroTTS, SilentTTS
 
 
 def _load_spec(path: Path) -> Dict[str, Any]:
@@ -59,6 +59,8 @@ def _build_tts(cfg: Dict[str, Any]):
     provider = (cfg.pop("provider", "silent") or "silent").lower()
     if provider == "kokoro":
         return KokoroTTS(**cfg)
+    if provider == "mlx":
+        return MLXKokoroTTS(**cfg)
     if provider == "gtts":
         return GTTSTTS(**cfg)
     if provider == "say":
