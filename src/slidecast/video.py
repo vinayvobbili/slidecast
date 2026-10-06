@@ -1,4 +1,5 @@
-"""ffmpeg steps: still image or clip + audio -> segment, concat segments, grab a poster.
+"""ffmpeg steps: still image or clip + audio -> segment, concat segments, lay music
+under the result, grab a poster.
 
 Every function takes an injectable ``runner`` (defaults to ``subprocess.run``) and
 an optional ``ffmpeg`` path, so callers can swap in the bundled binary and tests
@@ -12,10 +13,23 @@ import re
 import shutil
 import subprocess
 import tempfile
+from dataclasses import replace
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from .ffmpeg import find_ffmpeg
+from .models import Music, Sting
+
+# How the bed ducks under the voice: past -34 dB of narration (0.02 linear) it is
+# compressed 8:1, so normal speech pulls it down by ~10-12 dB. A 400 ms release
+# lets it swell back in pauses without pumping between words.
+DUCK = "threshold=0.02:ratio=8:attack=20:release=400"
+# Default sting levels, when a Sting doesn't set its own volume.
+INTRO_VOLUME = 0.75
+OUTRO_VOLUME = 0.7
+# A safety limiter on the final mix. level=0 turns off alimiter's auto-level,
+# which would otherwise gain the whole mix up to the limit.
+LIMITER = "alimiter=limit=0.95:level=0"
 
 
 def build_segment(
@@ -27,6 +41,7 @@ def build_segment(
     height: int,
     fps: int = 25,
     duration: Optional[float] = None,
+    delay: float = 0.0,
     audio_bitrate: str = "192k",
     ffmpeg: Optional[str] = None,
     runner=None,
@@ -35,7 +50,8 @@ def build_segment(
 
     If ``duration`` is given, the segment is exactly that long and the audio is
     padded with silence to fill it (so narration is never clipped). If it's None,
-    the audio drives the length (``-shortest``).
+    the audio drives the length (``-shortest``). ``delay`` holds the image silent
+    for that many seconds before the audio starts (``duration`` includes it).
     """
     ffmpeg = ffmpeg or find_ffmpeg()
     runner = runner or subprocess.run
@@ -44,10 +60,14 @@ def build_segment(
         "-loop", "1", "-i", str(image),
         "-i", str(audio),
     ]
+    afilter = [_adelay(delay)] if delay > 0 else []
     if duration is not None:
-        cmd += ["-t", f"{duration:.3f}", "-af", "apad"]
+        cmd += ["-t", f"{duration:.3f}"]
+        afilter.append("apad")
     else:
         cmd += ["-shortest"]
+    if afilter:
+        cmd += ["-af", ",".join(afilter)]
     cmd += [
         "-r", str(fps),
         "-c:v", "libx264", "-tune", "stillimage", "-pix_fmt", "yuv420p",
@@ -69,6 +89,7 @@ def build_clip_segment(
     height: int,
     duration: float,
     hold: float = 0.0,
+    delay: float = 0.0,
     fps: int = 25,
     audio_bitrate: str = "192k",
     ffmpeg: Optional[str] = None,
@@ -78,7 +99,8 @@ def build_clip_segment(
 
     The clip is scaled to fit ``width`` x ``height`` (letterboxed, never
     stretched), resampled to ``fps``, and its last frame is held for ``hold``
-    seconds. The segment is exactly ``duration`` long, with the narration padded
+    seconds. ``delay`` holds its first frame, silent, for that long before it
+    plays. The segment is exactly ``duration`` long, with the narration padded
     by silence to fill it; the clip's own audio is dropped. Encoder settings
     match :func:`build_segment`, so the two concat losslessly.
     """
@@ -90,14 +112,17 @@ def build_clip_segment(
         "setsar=1",
         f"fps={fps}",
     ]
+    if delay > 0:
+        vchain.append(f"tpad=start_mode=clone:start_duration={delay:.3f}")
     if hold > 0:
         vchain.append(f"tpad=stop_mode=clone:stop_duration={hold:.3f}")
     vchain.append("format=yuv420p")
+    achain = ([_adelay(delay)] if delay > 0 else []) + ["apad"]
     cmd: List[str] = [
         ffmpeg, "-y", "-loglevel", "error",
         "-i", str(clip),
         "-i", str(audio),
-        "-filter_complex", f"[0:v]{','.join(vchain)}[v];[1:a]apad[a]",
+        "-filter_complex", f"[0:v]{','.join(vchain)}[v];[1:a]{','.join(achain)}[a]",
         "-map", "[v]", "-map", "[a]",
         "-t", f"{duration:.3f}",
         "-r", str(fps),
@@ -176,17 +201,126 @@ def probe_duration(media: Path, *, ffmpeg: Optional[str] = None) -> float:
     raise RuntimeError(f"could not determine duration of {media}")
 
 
+def _adelay(seconds: float) -> str:
+    """An ``adelay`` that shifts every channel by ``seconds``."""
+    return f"adelay={round(seconds * 1000)}:all=1"
+
+
+def _amix(labels: List[str], out: str) -> str:
+    # normalize=0: amix would otherwise scale each input by 1/n, quietly turning
+    # the narration down every time something is mixed under it.
+    return (f"{''.join(labels)}amix=inputs={len(labels)}:duration=first:"
+            f"dropout_transition=0:normalize=0{out}")
+
+
+def _loudnorm(target: float) -> str:
+    # Single-pass loudnorm works at 192 kHz internally; resample back for AAC.
+    return f"loudnorm=I={target:g}:TP=-1.5:LRA=11,aresample=48000"
+
+
+def _audio_graph(
+    narration: str,
+    total: float,
+    *,
+    music: Optional[Music],
+    intro: Optional[Sting],
+    outro: Optional[Sting],
+    outro_duration: float,
+    loudness: Optional[float] = None,
+) -> Tuple[List[str], str]:
+    """Build the audio half of the mix: narration + stings + bed -> ``[a]``.
+
+    ``narration`` is the filter chain applied to ``[0:a]`` (padding it to
+    ``total``). Returns the extra ``-i`` arguments, in input order from 1, and the
+    filter graph. Every leg is upmixed to stereo first: Kokoro narration is mono,
+    and amix otherwise collapses the whole mix to mono, losing the bed's stereo
+    image. Each is also brought to 48 kHz, or the mix would run at the
+    narration's rate (24 kHz for Kokoro) and dull the music. The narration stays
+    at full level; only the bed is attenuated. The final mix runs through a
+    safety limiter, then ``loudnorm`` if ``loudness`` (integrated LUFS) is set.
+    """
+    if not (music or intro or outro):
+        tail = f",{_loudnorm(loudness)}" if loudness is not None else ""
+        return [], f"[0:a]{narration}{tail}[a]"
+    final = f",{LIMITER}" + (f",{_loudnorm(loudness)}" if loudness is not None else "") + "[a]"
+    inputs: List[str] = []
+    graph = [f"[0:a]{narration},aformat=sample_rates=48000:channel_layouts=stereo[narr]"]
+    voices = ["[narr]"]
+    if music is not None:
+        inputs += ["-stream_loop", "-1", "-i", str(music.file)]
+    for name, sting in (("intro", intro), ("outro", outro)):
+        if sting is None:
+            continue
+        inputs += ["-i", str(sting.file)]
+        default = INTRO_VOLUME if name == "intro" else OUTRO_VOLUME
+        chain = [f"volume={default if sting.volume is None else sting.volume}"]
+        if name == "outro" and total > outro_duration:
+            # Shifted so the outro's last note lands on the reel's last frame.
+            chain.append(_adelay(total - outro_duration))
+        chain.append("aformat=sample_rates=48000:channel_layouts=stereo")
+        graph.append(f"[{inputs.count('-i')}:a]{','.join(chain)}[{name}]")
+        voices.append(f"[{name}]")
+
+    if music is None:
+        graph.append(_amix(voices, final))
+        return inputs, ";".join(graph)
+
+    # The voice track is narration plus stings; with ducking it is also the
+    # sidechain key, so the bed dips under the stings as well as the speech.
+    if music.duck:
+        if len(voices) > 1:
+            graph.append(_amix(voices, ",asplit=2[voice][key]"))
+        else:
+            graph.append("[narr]asplit=2[voice][key]")
+        voice = "[voice]"
+    elif len(voices) > 1:
+        graph.append(_amix(voices, "[voice]"))
+        voice = "[voice]"
+    else:
+        voice = "[narr]"
+
+    # The looped bed is trimmed to the reel, attenuated, (ducked,) then faded,
+    # so the fades shape the final level rather than feeding the compressor.
+    bed = [f"atrim=0:{total:.3f}", "asetpts=PTS-STARTPTS",
+           f"volume={music.volume}", "aformat=sample_rates=48000:channel_layouts=stereo"]
+    fades: List[str] = []
+    if music.fade_in > 0:
+        fades.append(f"afade=t=in:st=0:d={music.fade_in:.3f}")
+    if music.fade_out > 0:
+        fades.append(f"afade=t=out:st={max(total - music.fade_out, 0.0):.3f}"
+                     f":d={music.fade_out:.3f}")
+    if music.duck:
+        graph.append(f"[1:a]{','.join(bed)}[music]")
+        graph.append(f"[music][key]{','.join([f'sidechaincompress={DUCK}', *fades])}[bed]")
+    else:
+        graph.append(f"[1:a]{','.join(bed + fades)}[bed]")
+    graph.append(_amix([voice, "[bed]"], final))
+    return inputs, ";".join(graph)
+
+
+def _outro_length(outro: Optional[Sting], outro_duration: Optional[float], ffmpeg: str) -> float:
+    if outro is None:
+        return 0.0
+    if outro_duration is None:
+        return probe_duration(outro.file, ffmpeg=ffmpeg)
+    return outro_duration
+
+
 def master(
     video: Path,
     out: Path,
     *,
-    music: Optional[Path] = None,
+    music=None,
+    intro=None,
+    outro=None,
     fade_in: float = 0.8,
     fade_out: float = 1.2,
     end_hold: float = 2.5,
-    music_volume: float = 0.08,
-    music_fade: float = 1.5,
+    music_volume: Optional[float] = None,
+    music_fade: Optional[float] = None,
     total_duration: Optional[float] = None,
+    outro_duration: Optional[float] = None,
+    loudness: Optional[float] = None,
     audio_bitrate: str = "192k",
     ffmpeg: Optional[str] = None,
     runner=None,
@@ -195,21 +329,30 @@ def master(
 
     A single ffmpeg pass that turns the raw concat into a polished cut:
 
-    * ``fade_in`` / ``fade_out`` — video (and music) fade durations in seconds, so
-      the reel eases in and out instead of cutting hard.
+    * ``fade_in`` / ``fade_out`` — video fade durations in seconds, so the reel
+      eases in and out instead of cutting hard.
     * ``end_hold`` — seconds to freeze the final frame (cloned) after narration
       ends, so the last slide doesn't vanish mid-thought. Narration audio is
       padded with silence across the hold.
-    * ``music`` — an optional audio file laid under the whole reel as a bed:
-      looped to length, attenuated to ``music_volume`` (linear gain, ~0.08 ≈
-      -22 dB), and fading with ``music_fade``. ``normalize=0`` keeps the
-      narration from being ducked by the mixer.
+    * ``music`` — an optional bed under the whole reel: a :class:`Music` or a
+      path (Music defaults), mixed as :func:`mix_music` describes.
+      ``music_volume`` / ``music_fade`` override its volume and both its fades.
+    * ``intro`` / ``outro`` — optional :class:`Sting` (or path) cues; the outro
+      ends on the last held frame.
+    * ``loudness`` — an integrated-loudness target in LUFS (e.g. -16 for web)
+      applied to the final audio with ``loudnorm``. Off when None.
 
-    The narration always stays at full level; only the bed is attenuated. The
-    total length becomes ``duration(video) + end_hold``.
+    The total length becomes ``duration(video) + end_hold``. The video is
+    re-encoded here (the fades need it); use :func:`mix_music` to score a reel
+    with its video stream copied.
     """
     ffmpeg = ffmpeg or find_ffmpeg()
     runner = runner or subprocess.run
+    music, intro, outro = Music.of(music), Sting.of(intro), Sting.of(outro)
+    if music is not None and music_volume is not None:
+        music = replace(music, volume=music_volume)
+    if music is not None and music_fade is not None:
+        music = replace(music, fade_in=music_fade, fade_out=music_fade)
     end_hold = max(end_hold, 0.0)
     if total_duration is None:
         total_duration = probe_duration(video, ffmpeg=ffmpeg)
@@ -225,33 +368,69 @@ def master(
     vchain.append("format=yuv420p")
     vfilter = ",".join(vchain)
 
-    cmd: List[str] = [ffmpeg, "-y", "-loglevel", "error"]
-    if music is not None:
-        cmd += ["-i", str(video), "-stream_loop", "-1", "-i", str(music)]
-        afade_out_st = max(total - music_fade, 0.0)
-        # Upmix both inputs to stereo before mixing. Kokoro narration is mono, and
-        # amix otherwise collapses the whole mix to mono — losing the music bed's
-        # stereo image. aformat duplicates a mono source across L+R.
-        bed = (
-            f"[1:a]atrim=0:{total:.3f},asetpts=PTS-STARTPTS,"
-            f"volume={music_volume},"
-            f"afade=t=in:st=0:d={music_fade:.3f},"
-            f"afade=t=out:st={afade_out_st:.3f}:d={music_fade:.3f},"
-            f"aformat=channel_layouts=stereo[bed]"
-        )
-        filt = (
-            f"[0:v]{vfilter}[v];"
-            f"[0:a]apad=pad_dur={end_hold:.3f},aformat=channel_layouts=stereo[narr];"
-            f"{bed};"
-            f"[narr][bed]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[a]"
-        )
-    else:
-        cmd += ["-i", str(video)]
-        filt = f"[0:v]{vfilter}[v];[0:a]apad=pad_dur={end_hold:.3f}[a]"
-
-    cmd += [
-        "-filter_complex", filt, "-map", "[v]", "-map", "[a]",
+    inputs, agraph = _audio_graph(
+        f"apad=pad_dur={end_hold:.3f}", total, music=music, intro=intro, outro=outro,
+        outro_duration=_outro_length(outro, outro_duration, ffmpeg), loudness=loudness,
+    )
+    cmd: List[str] = [
+        ffmpeg, "-y", "-loglevel", "error", "-i", str(video), *inputs,
+        "-filter_complex", f"[0:v]{vfilter}[v];{agraph}", "-map", "[v]", "-map", "[a]",
         "-c:v", "libx264", "-tune", "stillimage", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-b:a", audio_bitrate,
+        "-movflags", "+faststart",
+        str(out),
+    ]
+    runner(cmd, check=True)
+    return out
+
+
+def mix_music(
+    video: Path,
+    out: Path,
+    music=None,
+    *,
+    intro=None,
+    outro=None,
+    total_duration: Optional[float] = None,
+    outro_duration: Optional[float] = None,
+    loudness: Optional[float] = None,
+    audio_bitrate: str = "192k",
+    ffmpeg: Optional[str] = None,
+    runner=None,
+) -> Path:
+    """Lay a music bed and/or intro/outro stings under a reel's narration.
+
+    Only the audio is re-encoded; the video stream is copied untouched.
+
+    * ``music`` — a :class:`Music` (or a path, for its defaults): looped to the
+      reel's length and trimmed to it, set to ``volume``, faded in and out, and,
+      with ``duck``, sidechain-compressed under the voice so it dips while
+      someone speaks.
+    * ``intro`` / ``outro`` — :class:`Sting` (or path) cues. The intro starts at
+      t=0; the outro is delayed so it ends with the reel. Neither is ducked; a
+      ducking bed dips under them too.
+    * ``loudness`` — an integrated-loudness target in LUFS for the final audio.
+
+    Mixing uses ``normalize=0``, so the narration keeps its level, and a
+    limiter (``limit=0.95``) catches any peaks the sum adds. Pass
+    ``total_duration`` / ``outro_duration`` to skip probing for them.
+    """
+    music, intro, outro = Music.of(music), Sting.of(intro), Sting.of(outro)
+    if not (music or intro or outro or loudness is not None):
+        raise ValueError("mix_music() needs music, an intro, an outro or a loudness target")
+    ffmpeg = ffmpeg or find_ffmpeg()
+    runner = runner or subprocess.run
+    if total_duration is None:
+        total_duration = probe_duration(video, ffmpeg=ffmpeg)
+    inputs, graph = _audio_graph(
+        f"apad=whole_dur={total_duration:.3f}", total_duration,
+        music=music, intro=intro, outro=outro,
+        outro_duration=_outro_length(outro, outro_duration, ffmpeg), loudness=loudness,
+    )
+    cmd: List[str] = [
+        ffmpeg, "-y", "-loglevel", "error", "-i", str(video), *inputs,
+        "-filter_complex", graph, "-map", "0:v", "-map", "[a]",
+        "-c:v", "copy",
         "-c:a", "aac", "-b:a", audio_bitrate,
         "-movflags", "+faststart",
         str(out),

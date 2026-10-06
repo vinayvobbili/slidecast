@@ -12,6 +12,12 @@ A spec is YAML or JSON::
       url: http://127.0.0.1:8021/v1/audio/speech
       voice: af_heart
       response_format: wav
+    music: bed.mp3            # a path, or a mapping:
+    # music: {file: bed.mp3, volume: 0.22, fade_in: 1.0, fade_out: 2.0, duck: true}
+    intro: sting.wav          # or {file: sting.wav, volume: 0.75}
+    outro: {file: outro.wav, volume: 0.7}
+    lead_in: 1.8              # silence before the first narration (default: intro length)
+    loudness: -16             # LUFS target for the final audio (default: off)
     slides:
       - html_file: intro.html       # path (relative to the spec) ...
         narration: "Welcome."
@@ -31,6 +37,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict
 
+from .models import Music, Sting
 from .reel import Reel
 from .render import ChromeBinaryRenderer
 from .tts import GTTSTTS, KokoroTTS, MacSayTTS, SilentTTS
@@ -61,6 +68,32 @@ def _build_tts(cfg: Dict[str, Any]):
     raise SystemExit(f"Unknown tts provider: {provider!r}")
 
 
+def _audio_cfg(cfg: Any, base: Path, key: str, allowed: Dict[str, type]) -> Dict[str, Any]:
+    """Normalize a ``key:`` entry that is a path or a mapping with a ``file``."""
+    if isinstance(cfg, (str, Path)):
+        return {"file": base / cfg}
+    if not isinstance(cfg, dict) or not cfg.get("file"):
+        raise SystemExit(f"'{key}' must be a path or a mapping with a 'file'")
+    unknown = set(cfg) - set(allowed) - {"file"}
+    if unknown:
+        raise SystemExit(f"unknown '{key}' option(s): {', '.join(sorted(unknown))}")
+    kw = {k: cast(cfg[k]) for k, cast in allowed.items() if k in cfg}
+    return {"file": base / cfg["file"], **kw}
+
+
+def _build_music(cfg: Any, base: Path):
+    if not cfg:
+        return None
+    return Music(**_audio_cfg(cfg, base, "music", {
+        "volume": float, "fade_in": float, "fade_out": float, "duck": bool}))
+
+
+def _build_sting(cfg: Any, base: Path, key: str):
+    if not cfg:
+        return None
+    return Sting(**_audio_cfg(cfg, base, key, {"volume": float}))
+
+
 def _build_reel(spec: Dict[str, Any], base: Path) -> Reel:
     reel = Reel(
         width=int(spec.get("width", 1920)),
@@ -68,6 +101,11 @@ def _build_reel(spec: Dict[str, Any], base: Path) -> Reel:
         fps=int(spec.get("fps", 25)),
         tts=_build_tts(spec.get("tts", {})),
         silent_slide_seconds=float(spec.get("silent_slide_seconds", 3.0)),
+        music=_build_music(spec.get("music"), base),
+        intro=_build_sting(spec.get("intro"), base, "intro"),
+        outro=_build_sting(spec.get("outro"), base, "outro"),
+        lead_in=None if spec.get("lead_in") is None else float(spec["lead_in"]),
+        loudness=None if spec.get("loudness") is None else float(spec["loudness"]),
     )
     chrome = spec.get("chrome")
     if chrome:

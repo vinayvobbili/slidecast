@@ -1,11 +1,11 @@
 """Core data model: a reel is a list of segments — HTML slides and recorded clips —
-each with what the voice says over it."""
+each with what the voice says over it — plus optional music laid under the whole."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Union
+from typing import Optional, Union
 
 
 @dataclass
@@ -67,3 +67,72 @@ class Clip:
 
 
 Segment = Union[Slide, Clip]
+
+
+@dataclass
+class Music:
+    """A music bed laid under the whole reel, below the narration.
+
+    The track is looped to the reel's length, attenuated, and faded in and out.
+    With ``duck`` on it also dips while someone speaks (and under any intro/outro
+    sting), then swells back in the gaps.
+
+    Attributes:
+        file: Path to the track (any format ffmpeg reads).
+        volume: Linear gain on the bed before ducking; 0.22 (about -13 dB) sits
+            under speech once the duck pulls it down while the voice talks.
+        fade_in / fade_out: Seconds to fade the bed in at the start and out at
+            the end. 0 skips the fade.
+        duck: Sidechain-compress the bed under the narration so it dips while
+            the voice is talking.
+    """
+
+    file: Union[str, Path]
+    volume: float = 0.22
+    fade_in: float = 1.0
+    fade_out: float = 2.0
+    duck: bool = True
+
+    def __post_init__(self) -> None:
+        if not str(self.file).strip():
+            raise ValueError("Music.file must be a path to an audio file")
+        self.file = Path(self.file)
+        if self.volume < 0 or self.fade_in < 0 or self.fade_out < 0:
+            raise ValueError("volume, fade_in and fade_out must be non-negative")
+
+    @classmethod
+    def of(cls, value) -> Optional["Music"]:
+        """Coerce a path (or an existing :class:`Music`, or None) into a Music."""
+        if value is None or isinstance(value, cls):
+            return value
+        return cls(value)
+
+
+@dataclass
+class Sting:
+    """A short opening or closing cue played once, at full presence, never ducked.
+
+    An intro starts at t=0; an outro is placed so it ends with the reel.
+
+    Attributes:
+        file: Path to the sting (any format ffmpeg reads).
+        volume: Linear gain. None (the default) means 0.75 for an intro and 0.7
+            for an outro, clearly above the bed.
+    """
+
+    file: Union[str, Path]
+    volume: Optional[float] = None
+
+    def __post_init__(self) -> None:
+        if not str(self.file).strip():
+            raise ValueError("Sting.file must be a path to an audio file")
+        self.file = Path(self.file)
+        if self.volume is not None and self.volume < 0:
+            raise ValueError("volume must be non-negative")
+
+    @classmethod
+    def of(cls, value) -> Optional["Sting"]:
+        """Coerce a path (or an existing :class:`Sting`, or None) into a Sting."""
+        if value is None or isinstance(value, cls):
+            return value
+        return cls(value)

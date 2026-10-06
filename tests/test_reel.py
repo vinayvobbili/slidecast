@@ -1,4 +1,5 @@
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -128,3 +129,65 @@ def test_clip_with_unmeasured_narration_probes_the_audio(monkeypatch, tmp_path):
     reel.render(tmp_path / "out.mp4", ffmpeg="ff")
     seg = runner.commands[0]
     assert seg[seg.index("-t") + 1] == "5.000"
+
+
+def _mix_commands(runner):
+    return [c for c in runner.commands if "-filter_complex" in c and "amix" in c[c.index("-filter_complex") + 1]]
+
+
+def test_music_alone_is_mixed_with_the_video_copied(monkeypatch, tmp_path):
+    from slidecast import Music, video
+
+    runner = _patch_video_runner(monkeypatch)
+    monkeypatch.setattr(video, "probe_duration", lambda media, ffmpeg=None: 2.0)
+    reel = Reel(renderer=FakeRenderer(), tts=SilentTTS(seconds=1.0), music="bed.mp3")
+    reel.add("<h1>a</h1>", "hello")
+    reel.render(tmp_path / "out.mp4", ffmpeg="ff")
+
+    seg, cat, mix = runner.commands
+    assert "-af" in seg and seg[seg.index("-af") + 1] == "apad"  # no intro -> no lead-in
+    assert "concat" in cat and cat[-1].endswith("_concat.mp4")
+    assert mix[mix.index("-c:v") + 1] == "copy" and "bed.mp3" in mix
+    assert "sidechaincompress" in mix[mix.index("-filter_complex") + 1]
+    assert mix[-1] == str(tmp_path / "out.mp4")
+    assert isinstance(reel.music, str)  # coerced per render, not rewritten
+    assert Music.of(reel.music).volume == 0.22
+
+
+def test_intro_sets_the_lead_in_and_fades_go_through_master(monkeypatch, tmp_path):
+    from slidecast import Music, video
+
+    runner = _patch_video_runner(monkeypatch)
+    probes = {"in.wav": 1.8, "out.wav": 2.0, "_concat.mp4": 5.0}
+    monkeypatch.setattr(video, "probe_duration", lambda media, ffmpeg=None: probes[Path(media).name])
+    reel = Reel(renderer=FakeRenderer(), tts=SilentTTS(seconds=1.0),
+                music=Music("bed.mp3", duck=False), intro="in.wav", outro="out.wav")
+    reel.add("<h1>a</h1>", "first", tail_pad=0.2)
+    reel.add("<h1>b</h1>", "second")
+    reel.render(tmp_path / "out.mp4", ffmpeg="ff", fade_in=0.5, end_hold=1.0, music_volume=0.3)
+
+    first, second = runner.commands[0], runner.commands[1]
+    assert first[first.index("-t") + 1] == "3.000"  # 1.8 lead-in + 1.0 voice + 0.2 pad
+    assert first[first.index("-af") + 1] == "adelay=1800:all=1,apad"
+    assert second[second.index("-af") + 1] == "apad"  # only the first slide waits
+    (mix,) = _mix_commands(runner)
+    assert mix[mix.index("-c:v") + 1] == "libx264"  # master re-encodes for the fade
+    fc = mix[mix.index("-filter_complex") + 1]
+    assert "volume=0.3," in fc and "sidechaincompress" not in fc
+    assert "adelay=4000:all=1" in fc  # outro ends at 5.0 + 1.0 hold
+
+
+def test_explicit_lead_in_and_loudness_without_music(monkeypatch, tmp_path):
+    from slidecast import video
+
+    runner = _patch_video_runner(monkeypatch)
+    monkeypatch.setattr(video, "probe_duration", lambda media, ffmpeg=None: 4.0)
+    reel = Reel(renderer=FakeRenderer(), tts=SilentTTS(seconds=1.0), lead_in=0.5, loudness=-16)
+    reel.add_clip(tmp_path / "demo.webm", "watch")
+    reel.render(tmp_path / "out.mp4", ffmpeg="ff")
+
+    clip, _, final = runner.commands
+    assert clip[clip.index("-t") + 1] == "4.500"
+    assert "tpad=start_mode=clone:start_duration=0.500" in clip[clip.index("-filter_complex") + 1]
+    assert final[final.index("-c:v") + 1] == "copy"
+    assert "loudnorm=I=-16:" in final[final.index("-filter_complex") + 1]

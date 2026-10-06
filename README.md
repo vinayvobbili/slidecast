@@ -56,6 +56,25 @@ reel.add_clip("fill.webm", "Then fill the form.", tail_pad=0.6)
 Record the clips any way you like: Playwright's `record_video_dir`, a
 screenshot sequence encoded with ffmpeg, or a screen recorder.
 
+### Music and stings
+
+Lay a music bed under the narration, and bookend the reel with short stings:
+
+```python
+from slidecast import Music, Reel, Sting
+
+reel = Reel(tts=..., music=Music("bed.mp3", volume=0.22, duck=True),
+            intro="intro.wav", outro=Sting("outro.wav", volume=0.7), loudness=-16)
+```
+
+The bed loops to the reel's length, fades in and out, and is ducked (sidechain
+compressed) so it dips while someone speaks or a sting plays. The intro plays
+from the start, and the first narration waits for it (`lead_in`, which defaults
+to the intro's length). The outro is timed to end on the last frame. The
+narration keeps its level. `loudness` (LUFS) normalizes the final audio, and is
+off by default. Only the audio is re-encoded; the video stream is copied, unless
+`render(fade_in=..., end_hold=...)` asks for a re-encoded master anyway.
+
 ## CLI
 
 ```
@@ -71,6 +90,11 @@ tts:
   url: http://127.0.0.1:8021/v1/audio/speech
   voice: af_heart
   response_format: wav
+music: bed.mp3            # or {file, volume: 0.22, fade_in: 1.0, fade_out: 2.0, duck: true}
+intro: intro.wav          # or {file, volume: 0.75}; the first narration waits for it
+outro: {file: outro.wav, volume: 0.7}   # ends with the reel
+lead_in: 1.8              # optional: silence before the first narration (default: intro length)
+loudness: -16             # optional: LUFS target for the final audio
 slides:
   - video: demo.mp4       # a recorded clip, relative to the spec
     narration: "Watch it run."
@@ -103,8 +127,12 @@ without changing the on-screen text.
 - `PlaywrightRenderer` — headless Chromium, launched once per reel (default).
 - `ChromeBinaryRenderer` — drive an existing Chrome/Chromium binary by path.
 
+**Music** — `Music(file, volume, fade_in, fade_out, duck)` for the bed, and
+`Sting(file, volume)` for the intro and outro. A plain path works for either
+and uses the defaults.
+
 **ffmpeg steps** are exposed directly (`build_segment`, `build_clip_segment`,
-`concat`, `master`, `poster`) and
+`concat`, `master`, `mix_music`, `poster`) and
 take an injectable `runner`, so you can compose your own pipeline or test command
 construction without invoking ffmpeg.
 

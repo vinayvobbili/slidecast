@@ -75,3 +75,50 @@ def test_main_render_end_to_end(monkeypatch, tmp_path, capsys):
     assert rc == 0
     assert out.exists()
     assert "wrote" in capsys.readouterr().out
+
+
+def test_music_as_a_path_is_relative_to_the_spec(tmp_path):
+    from slidecast import Music
+
+    spec = tmp_path / "reel.yaml"
+    spec.write_text("music: audio/bed.mp3\nslides: []\n")
+    reel = _build_reel(_load_spec(spec), tmp_path)
+    assert reel.music == Music(tmp_path / "audio" / "bed.mp3")
+    assert reel.intro is None and reel.outro is None
+    assert reel.lead_in is None and reel.loudness is None
+
+
+def test_music_stings_lead_in_and_loudness_as_mappings(tmp_path):
+    from slidecast import Music, Sting
+
+    spec = tmp_path / "reel.yaml"
+    spec.write_text(
+        "music:\n"
+        "  file: bed.mp3\n"
+        "  volume: 0.1\n"
+        "  fade_in: 0.5\n"
+        "  fade_out: 3\n"
+        "  duck: false\n"
+        "intro: sting.wav\n"
+        "outro: {file: end.wav, volume: 0.6}\n"
+        "lead_in: 1.8\n"
+        "loudness: -16\n"
+        "slides: []\n"
+    )
+    reel = _build_reel(_load_spec(spec), tmp_path)
+    assert reel.music == Music(tmp_path / "bed.mp3", volume=0.1, fade_in=0.5,
+                               fade_out=3.0, duck=False)
+    assert reel.intro == Sting(tmp_path / "sting.wav")
+    assert reel.outro == Sting(tmp_path / "end.wav", volume=0.6)
+    assert reel.lead_in == 1.8 and reel.loudness == -16.0
+
+
+def test_music_mapping_errors_are_reported(tmp_path):
+    import pytest
+
+    with pytest.raises(SystemExit, match="mapping with a 'file'"):
+        _build_reel({"music": {"volume": 0.1}}, tmp_path)
+    with pytest.raises(SystemExit, match="unknown 'music' option"):
+        _build_reel({"music": {"file": "bed.mp3", "volum": 0.1}}, tmp_path)
+    with pytest.raises(SystemExit, match="unknown 'intro' option"):
+        _build_reel({"intro": {"file": "in.wav", "duck": True}}, tmp_path)

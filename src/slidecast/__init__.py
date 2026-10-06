@@ -18,7 +18,10 @@ Pieces (all swappable)
 Model:
     Slide(html, narration="", tail_pad=0.0, min_duration=0.0)
     Clip(video, narration="", tail_pad=0.0, min_duration=0.0)
-    Reel(width, height, fps, tts=..., renderer=...).add(...).add_clip(...).render(out)
+    Music(file, volume=0.22, fade_in=1.0, fade_out=2.0, duck=True)
+    Sting(file, volume=None)   # intro 0.75 / outro 0.7 when None
+    Reel(width, height, fps, tts=..., renderer=..., music=..., intro=..., outro=...,
+         lead_in=None, loudness=None).add(...).add_clip(...).render(out)
 Text-to-speech (``synthesize(text, path) -> seconds | None``):
     KokoroTTS  — any OpenAI-compatible /v1/audio/speech endpoint
     GTTSTTS    — Google Translate TTS (mp3)
@@ -29,11 +32,12 @@ Renderers (HTML -> PNG, used as a context manager):
     ChromeBinaryRenderer  — drive an existing Chrome binary by path
 ffmpeg steps (injectable runner, for direct use/testing):
     build_segment(...) / build_clip_segment(...) / concat(...) / poster(...)
+    master(...) / mix_music(...)   # fades + end-hold / bed, stings, loudness
     find_ffmpeg() -> path   (PATH, $SLIDECAST_FFMPEG, or imageio-ffmpeg)
 """
 
 from .ffmpeg import FFmpegNotFound, find_ffmpeg
-from .models import Clip, Segment, Slide
+from .models import Clip, Music, Segment, Slide, Sting
 from .reel import Reel
 from .render import ChromeBinaryRenderer, PlaywrightRenderer, Renderer
 from .tts import (
@@ -45,7 +49,15 @@ from .tts import (
     apply_phonetic,
     wav_duration,
 )
-from .video import build_clip_segment, build_segment, concat, master, poster, probe_duration
+from .video import (
+    build_clip_segment,
+    build_segment,
+    concat,
+    master,
+    mix_music,
+    poster,
+    probe_duration,
+)
 
 __version__ = "0.3.0"
 
@@ -53,6 +65,8 @@ __all__ = [
     "Slide",
     "Clip",
     "Segment",
+    "Music",
+    "Sting",
     "Reel",
     "Renderer",
     "PlaywrightRenderer",
@@ -68,6 +82,7 @@ __all__ = [
     "build_clip_segment",
     "concat",
     "master",
+    "mix_music",
     "poster",
     "probe_duration",
     "find_ffmpeg",

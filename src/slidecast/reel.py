@@ -4,7 +4,8 @@ A :class:`Reel` ties the three pluggable pieces together — a renderer (HTML ->
 PNG), a TTS provider (text -> audio + duration), and the ffmpeg steps (segment +
 concat). Per slide it screenshots the HTML, narrates the text, and builds a
 segment whose length fits the speech. A clip plays through instead, holding its
-last frame if the speech runs longer. Then every segment is concatenated.
+last frame if the speech runs longer. Then every segment is concatenated, and
+any music bed, intro/outro sting or loudness target is mixed in.
 """
 
 from __future__ import annotations
@@ -12,13 +13,13 @@ from __future__ import annotations
 import contextlib
 import shutil
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Union
 
 from . import video as _video
 from .ffmpeg import find_ffmpeg
-from .models import Clip, Segment, Slide
+from .models import Clip, Music, Segment, Slide, Sting
 from .render import PlaywrightRenderer, Renderer
 from .tts import SilentTTS, TTSProvider
 
@@ -38,6 +39,15 @@ class Reel:
         renderer: An HTML screenshotter. Defaults to :class:`PlaywrightRenderer`.
         silent_slide_seconds: Hold time for a slide with empty narration when it
             sets no ``min_duration`` of its own.
+        music: An optional bed under the whole reel — a :class:`Music`, or a
+            path for its defaults (low, faded, ducked under the voice).
+        intro / outro: Optional :class:`Sting` cues (or paths). The intro plays
+            from t=0; the outro ends with the reel.
+        lead_in: Seconds the first slide holds silent before its narration
+            starts. None means the intro's length (0 with no intro), so the voice
+            never talks over the intro.
+        loudness: Integrated-loudness target for the final audio in LUFS (e.g.
+            -16 for web). None leaves the level alone.
     """
 
     width: int = 1920
@@ -46,6 +56,11 @@ class Reel:
     tts: TTSProvider = field(default_factory=SilentTTS)
     renderer: Optional[Renderer] = None
     silent_slide_seconds: float = 3.0
+    music: Union[Music, str, Path, None] = None
+    intro: Union[Sting, str, Path, None] = None
+    outro: Union[Sting, str, Path, None] = None
+    lead_in: Optional[float] = None
+    loudness: Optional[float] = None
     slides: List[Segment] = field(default_factory=list)
 
     def add(self, html: str, narration: str = "", *,
@@ -103,28 +118,41 @@ class Reel:
         workdir: Optional[Path] = None,
         ffmpeg: Optional[str] = None,
         on_progress: Optional[ProgressHook] = None,
-        music: Optional[Path] = None,
+        music=None,
         fade_in: float = 0.0,
         fade_out: float = 0.0,
         end_hold: float = 0.0,
-        music_volume: float = 0.08,
-        music_fade: float = 1.5,
+        music_volume: Optional[float] = None,
+        music_fade: Optional[float] = None,
     ) -> Path:
         """Render the whole reel to ``out_path`` (an .mp4). Returns the path.
 
         If ``make_poster`` is set, also writes ``<stem>_poster.jpg`` next to it.
 
-        When ``music`` is given or any of ``fade_in`` / ``fade_out`` / ``end_hold``
-        is non-zero, the concatenated reel is run through :func:`video.master` for
-        a finished cut — fade in/out, a frozen end-hold, and an optional looped,
-        attenuated music bed. With all of them at their defaults the reel is
-        concatenated straight to ``out_path`` (the original behaviour).
+        When any of ``fade_in`` / ``fade_out`` / ``end_hold`` is non-zero, the
+        concatenated reel is run through :func:`video.master` for a finished cut —
+        fade in/out and a frozen end-hold, with the reel's music, stings and
+        loudness mixed in the same pass. With only music, stings or loudness set,
+        :func:`video.mix_music` mixes them and copies the video stream. With none
+        of these the reel is concatenated straight to ``out_path``.
+
+        ``music`` overrides :attr:`music` for this render; ``music_volume`` /
+        ``music_fade`` override the bed's volume and both its fades.
         """
         if not self.slides:
             raise ValueError("Reel has no slides or clips")
         out_path = Path(out_path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         ffmpeg = ffmpeg or find_ffmpeg()
+        bed = Music.of(music if music is not None else self.music)
+        if bed is not None and music_volume is not None:
+            bed = replace(bed, volume=music_volume)
+        if bed is not None and music_fade is not None:
+            bed = replace(bed, fade_in=music_fade, fade_out=music_fade)
+        intro, outro = Sting.of(self.intro), Sting.of(self.outro)
+        lead_in = self.lead_in
+        if lead_in is None:
+            lead_in = _video.probe_duration(intro.file, ffmpeg=ffmpeg) if intro else 0.0
 
         keep_work = workdir is not None
         work = Path(workdir) if workdir else Path(tempfile.mkdtemp(prefix="slidecast_"))
@@ -142,34 +170,44 @@ class Reel:
                         on_progress(i, total, slide)
                     audio = work / f"s{i:03d}.wav"
                     seg = work / f"s{i:03d}.mp4"
+                    # The first segment holds silent through the lead-in (the intro).
+                    delay = lead_in if i == 1 else 0.0
                     if isinstance(slide, Clip):
                         duration, hold = self._clip_duration(slide, audio, ffmpeg)
                         _video.build_clip_segment(
                             slide.video, audio, seg,
                             width=self.width, height=self.height, fps=self.fps,
-                            duration=duration, hold=hold, ffmpeg=ffmpeg,
+                            duration=duration + delay, hold=hold, delay=delay,
+                            ffmpeg=ffmpeg,
                         )
                         segments.append(seg)
                         continue
                     png = work / f"s{i:03d}.png"
                     r.screenshot(slide.html, png, width=self.width, height=self.height)
                     duration = self._segment_duration(slide, audio)
+                    if duration is not None:
+                        duration += delay
                     _video.build_segment(
                         png, audio, seg,
                         width=self.width, height=self.height, fps=self.fps,
-                        duration=duration, ffmpeg=ffmpeg,
+                        duration=duration, delay=delay, ffmpeg=ffmpeg,
                     )
                     segments.append(seg)
-            need_master = bool(music) or fade_in > 0 or fade_out > 0 or end_hold > 0
+            need_master = fade_in > 0 or fade_out > 0 or end_hold > 0
+            need_mix = bool(bed or intro or outro) or self.loudness is not None
+            raw = work / "_concat.mp4"
             if need_master:
-                raw = work / "_concat.mp4"
                 _video.concat(segments, raw, ffmpeg=ffmpeg)
                 _video.master(
-                    raw, out_path,
-                    music=Path(music) if music else None,
+                    raw, out_path, music=bed, intro=intro, outro=outro,
                     fade_in=fade_in, fade_out=fade_out, end_hold=end_hold,
-                    music_volume=music_volume, music_fade=music_fade,
-                    ffmpeg=ffmpeg,
+                    loudness=self.loudness, ffmpeg=ffmpeg,
+                )
+            elif need_mix:
+                _video.concat(segments, raw, ffmpeg=ffmpeg)
+                _video.mix_music(
+                    raw, out_path, bed, intro=intro, outro=outro,
+                    loudness=self.loudness, ffmpeg=ffmpeg,
                 )
             else:
                 _video.concat(segments, out_path, ffmpeg=ffmpeg)
