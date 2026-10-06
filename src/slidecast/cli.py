@@ -1,6 +1,7 @@
-"""Command line: render a reel from a spec file.
+"""Command line: render a reel from a spec file, or compose music for one.
 
     slidecast render reel.yaml -o out.mp4 --poster
+    slidecast compose -o audio/ --length 95 --bpm 84 --seed 7
 
 A spec is YAML or JSON::
 
@@ -12,9 +13,9 @@ A spec is YAML or JSON::
       url: http://127.0.0.1:8021/v1/audio/speech
       voice: af_heart
       response_format: wav
-    music: bed.mp3            # a path, or a mapping:
+    music: bed.mp3            # a path, "compose", or a mapping:
     # music: {file: bed.mp3, volume: 0.22, fade_in: 1.0, fade_out: 2.0, duck: true, duck_db: 12}
-    intro: sting.wav          # or {file: sting.wav, volume: 0.75}
+    intro: sting.wav          # or "compose", or {file: sting.wav, volume: 0.75}
     outro: {file: outro.wav, volume: 0.7}
     lead_in: 1.8              # silence before the first narration (default: intro length)
     loudness: -16             # LUFS target for the final audio (default: off)
@@ -37,10 +38,11 @@ import sys
 from pathlib import Path
 from typing import Any, Dict
 
-from .models import Music, Sting
+from . import sound
+from .models import COMPOSE, Music, Sting
 from .reel import Reel
 from .render import ChromeBinaryRenderer
-from .tts import GTTSTTS, KokoroTTS, MacSayTTS, MLXKokoroTTS, SilentTTS
+from .tts import GTTSTTS, KokoroTTS, MacSayTTS, MLXKokoroTTS, SilentTTS, wav_duration
 
 
 def _load_spec(path: Path) -> Dict[str, Any]:
@@ -71,16 +73,22 @@ def _build_tts(cfg: Dict[str, Any]):
 
 
 def _audio_cfg(cfg: Any, base: Path, key: str, allowed: Dict[str, type]) -> Dict[str, Any]:
-    """Normalize a ``key:`` entry that is a path or a mapping with a ``file``."""
+    """Normalize a ``key:`` entry that is a path or a mapping with a ``file``.
+
+    A ``file`` of "compose" stays as is, for the reel to synthesize.
+    """
+    def resolve(file):
+        return file if file == COMPOSE else base / file
+
     if isinstance(cfg, (str, Path)):
-        return {"file": base / cfg}
+        return {"file": resolve(cfg)}
     if not isinstance(cfg, dict) or not cfg.get("file"):
         raise SystemExit(f"'{key}' must be a path or a mapping with a 'file'")
     unknown = set(cfg) - set(allowed) - {"file"}
     if unknown:
         raise SystemExit(f"unknown '{key}' option(s): {', '.join(sorted(unknown))}")
     kw = {k: cast(cfg[k]) for k, cast in allowed.items() if k in cfg}
-    return {"file": base / cfg["file"], **kw}
+    return {"file": resolve(cfg["file"]), **kw}
 
 
 def _build_music(cfg: Any, base: Path):
@@ -139,7 +147,25 @@ def main(argv=None) -> int:
     r.add_argument("--poster", action="store_true", help="also write <stem>_poster.jpg")
     r.add_argument("--keep-work", type=Path, default=None,
                    help="keep intermediate frames/audio in this directory")
+    c = sub.add_parser("compose", help="synthesize a music bed and intro/outro stings")
+    c.add_argument("-o", "--out", type=Path, required=True, metavar="DIR",
+                   help="directory for music_bed.wav, intro_sting.wav, outro_sting.wav")
+    c.add_argument("--length", type=float, default=95.0, metavar="SECONDS",
+                   help="bed length in seconds; make it outlast the reel (default 95)")
+    c.add_argument("--bpm", type=float, default=84, metavar="N", help="bed tempo (default 84)")
+    c.add_argument("--seed", type=int, default=7, metavar="N",
+                   help="same seed, same audio (default 7)")
     args = parser.parse_args(argv)
+
+    if args.cmd == "compose":
+        if args.length <= 0 or args.bpm <= 0:
+            parser.error("--length and --bpm must be positive")
+        try:
+            paths = sound.compose(args.out, length=args.length, bpm=args.bpm, seed=args.seed)
+        except ImportError as e:
+            raise SystemExit(str(e))
+        for path in paths.values():
+            print(f"✓ wrote {path} ({wav_duration(path):.1f} s)")
 
     if args.cmd == "render":
         spec = _load_spec(args.spec)

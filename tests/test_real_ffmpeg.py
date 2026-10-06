@@ -131,3 +131,21 @@ def test_loudness_target_lifts_a_quiet_reel(tmp_path):
     lufs = float(re.findall(r"I:\s*(-?[\d.]+) LUFS", res.stderr)[-1])
     assert lufs == pytest.approx(-16, abs=1.5)
     assert "48000 Hz" in subprocess.run([FFMPEG, "-i", str(out)], capture_output=True, text=True).stderr
+
+
+def test_composed_bed_and_stings_mix_into_a_reel(tmp_path):
+    pytest.importorskip("numpy")
+    png = _make(["-f", "lavfi", "-i", "color=c=navy:s=160x120", "-frames:v", "1"], tmp_path / "s.png")
+
+    reel = Reel(width=160, height=120, fps=25, tts=ToneTTS(), renderer=PngRenderer(png),
+                music="compose", intro="compose", outro="compose", lead_in=1.0)
+    reel.add("<h1>one</h1>", "first", tail_pad=2.0)
+    out = reel.render(tmp_path / "out.mp4", ffmpeg=FFMPEG, workdir=tmp_path / "work")
+
+    assert probe_duration(out, ffmpeg=FFMPEG) == pytest.approx(4.0, abs=0.15)
+    assert probe_duration(tmp_path / "work" / "music_bed.wav", ffmpeg=FFMPEG) >= 4.0 + 3.0
+    decoded = subprocess.run([FFMPEG, "-v", "error", "-i", str(out), "-f", "null", "-"],
+                             capture_output=True, text=True)
+    assert decoded.returncode == 0 and not decoded.stderr.strip()
+    # Music under the whole reel: the opening second, before the voice, isn't silent.
+    assert _level(out, 0.2, 0.9, "anull") > -50

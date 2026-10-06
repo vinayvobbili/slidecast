@@ -16,6 +16,7 @@ pip install slidecast[playwright]  # default renderer (headless Chromium)
 pip install slidecast[gtts]        # Google Translate TTS
 pip install slidecast[ffmpeg]      # bundled ffmpeg binary (no system install)
 pip install 'slidecast[mlx]'       # Kokoro in-process on Apple Silicon (no TTS server)
+pip install 'slidecast[compose]'   # synthesize a music bed and stings (numpy)
 ```
 
 After installing the Playwright extra, fetch the browser once:
@@ -79,6 +80,36 @@ narration keeps its level. `loudness` (LUFS) normalizes the final audio, and is
 off by default. Only the audio is re-encoded; the video stream is copied, unless
 `render(fade_in=..., end_hold=...)` asks for a re-encoded master anyway.
 
+### Composing a bed and stings
+
+No music to hand? slidecast can write its own, synthesized from scratch with
+numpy, so there is nothing to license. The bed is a soft lo-fi loop (Fmaj7 –
+G6 – Em7 – Am7 at 84 BPM: pad, electric-piano arpeggio, bass, a soft kick and
+shaker). The intro is a rising swoosh that lands on a bell chord at 1.0 s; the
+outro is a run of falling bells that resolves on Cmaj7.
+
+```
+slidecast compose -o audio/ --length 95 --bpm 84 --seed 7
+```
+
+That writes `music_bed.wav`, `intro_sting.wav` (5.1 s) and `outro_sting.wav`
+(5.0 s), 16-bit stereo. The same seed gives the same audio. The bed fades out
+over its last 3 s, so make it a few seconds longer than the reel, or the fade
+dips each time it loops.
+
+Or let the reel compose them as it renders. It writes them into its work
+directory and makes the bed outlast the reel:
+
+```python
+reel = Reel(tts=..., music="compose", intro="compose", outro="compose", lead_in=2.0)
+reel = Reel(tts=..., music=Music("compose", volume=0.18))   # a composed bed, your settings
+```
+
+In Python, `music_bed(length, bpm, seed)`, `intro_sting(seed)` and
+`outro_sting()` return the audio as numpy arrays, and `write_wav(path, audio)`
+saves one. The intro's ring-out runs to 5.1 s; a `lead_in` of about 2 s lets
+the voice start over its tail instead of waiting for silence.
+
 ## CLI
 
 ```
@@ -94,8 +125,8 @@ tts:
   url: http://127.0.0.1:8021/v1/audio/speech
   voice: af_heart
   response_format: wav
-music: bed.mp3            # or {file, volume: 0.22, fade_in: 1.0, fade_out: 2.0, duck: true, duck_db: 12}
-intro: intro.wav          # or {file, volume: 0.75}; the first narration waits for it
+music: bed.mp3            # or compose, or {file, volume: 0.22, fade_in: 1.0, fade_out: 2.0, duck: true, duck_db: 12}
+intro: intro.wav          # or compose, or {file, volume: 0.75}; the first narration waits for it
 outro: {file: outro.wav, volume: 0.7}   # ends with the reel
 lead_in: 1.8              # optional: silence before the first narration (default: intro length)
 loudness: -16             # optional: LUFS target for the final audio
@@ -141,7 +172,7 @@ without changing the on-screen text.
 
 **Music** — `Music(file, volume, fade_in, fade_out, duck, duck_db)` for the bed, and
 `Sting(file, volume)` for the intro and outro. A plain path works for either
-and uses the defaults.
+and uses the defaults; `"compose"` synthesizes one.
 
 **ffmpeg steps** are exposed directly (`build_segment`, `build_clip_segment`,
 `concat`, `master`, `mix_music`, `poster`) and

@@ -126,3 +126,54 @@ def test_music_mapping_errors_are_reported(tmp_path):
         _build_reel({"music": {"file": "bed.mp3", "volum": 0.1}}, tmp_path)
     with pytest.raises(SystemExit, match="unknown 'intro' option"):
         _build_reel({"intro": {"file": "in.wav", "duck": True}}, tmp_path)
+
+
+def test_compose_is_kept_unresolved_for_the_reel(tmp_path):
+    from slidecast import Music, Sting
+
+    spec = tmp_path / "reel.yaml"
+    spec.write_text("music: {file: compose, volume: 0.15}\nintro: compose\noutro: compose\nslides: []\n")
+    reel = _build_reel(_load_spec(spec), tmp_path)
+    assert reel.music == Music("compose", volume=0.15) and reel.music.composed
+    assert reel.intro == Sting("compose") and reel.intro.composed
+    assert reel.outro.composed
+    assert not Music(tmp_path / "compose.wav").composed
+
+
+def test_main_compose_passes_its_options(monkeypatch, tmp_path, capsys):
+    from slidecast import sound
+
+    calls = []
+
+    def fake_compose(out_dir, length, bpm, seed):
+        calls.append((out_dir, length, bpm, seed))
+        out_dir.mkdir()
+        paths = {n: out_dir / f"{n}.wav" for n in ("music_bed", "intro_sting", "outro_sting")}
+        for p in paths.values():
+            SilentTTS(seconds=0.5).synthesize("", p)
+        return paths
+
+    monkeypatch.setattr(sound, "compose", fake_compose)
+    assert main(["compose", "-o", str(tmp_path / "a"), "--length", "30", "--bpm", "90", "--seed", "3"]) == 0
+    assert main(["compose", "-o", str(tmp_path / "b")]) == 0
+    assert calls == [(tmp_path / "a", 30.0, 90.0, 3), (tmp_path / "b", 95.0, 84.0, 7)]
+    assert "music_bed.wav (0.5 s)" in capsys.readouterr().out
+
+
+def test_main_compose_rejects_a_zero_length(capsys):
+    import pytest
+
+    with pytest.raises(SystemExit):
+        main(["compose", "-o", "x", "--length", "0"])
+    assert "must be positive" in capsys.readouterr().err
+
+
+def test_main_compose_writes_real_wavs(tmp_path, capsys):
+    import pytest
+
+    pytest.importorskip("numpy")
+    from slidecast.tts import wav_duration
+
+    assert main(["compose", "-o", str(tmp_path), "--length", "2"]) == 0
+    assert wav_duration(tmp_path / "music_bed.wav") == pytest.approx(2.0)
+    assert (tmp_path / "intro_sting.wav").exists() and (tmp_path / "outro_sting.wav").exists()

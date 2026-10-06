@@ -5,7 +5,8 @@ PNG), a TTS provider (text -> audio + duration), and the ffmpeg steps (segment +
 concat). Per slide it screenshots the HTML, narrates the text, and builds a
 segment whose length fits the speech. A clip plays through instead, holding its
 last frame if the speech runs longer. Then every segment is concatenated, and
-any music bed, intro/outro sting or loudness target is mixed in.
+any music bed, intro/outro sting or loudness target is mixed in. A bed or sting
+given as "compose" is synthesized (:mod:`slidecast.sound`) into the work directory.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable, List, Optional, Union
 
+from . import sound as _sound
 from . import video as _video
 from .ffmpeg import find_ffmpeg
 from .models import Clip, Music, Segment, Slide, Sting
@@ -40,9 +42,11 @@ class Reel:
         silent_slide_seconds: Hold time for a slide with empty narration when it
             sets no ``min_duration`` of its own.
         music: An optional bed under the whole reel — a :class:`Music`, or a
-            path for its defaults (low, faded, ducked under the voice).
+            path for its defaults (low, faded, ducked under the voice). "compose"
+            synthesizes one that outlasts the reel (needs numpy).
         intro / outro: Optional :class:`Sting` cues (or paths). The intro plays
-            from t=0; the outro ends with the reel.
+            from t=0; the outro ends with the reel. "compose" synthesizes the
+            stock intro or outro.
         lead_in: Seconds the first slide holds silent before its narration
             starts. None means the intro's length (0 with no intro), so the voice
             never talks over the intro.
@@ -111,6 +115,22 @@ class Reel:
         return duration, duration - length
 
     @staticmethod
+    def _compose_sting(sting: Optional[Sting], path: Path, synth) -> Optional[Sting]:
+        """Synthesize a "compose" sting into ``path``; pass any other sting through."""
+        if sting is None or not sting.composed:
+            return sting
+        _sound.write_wav(path, synth())
+        return replace(sting, file=path)
+
+    @staticmethod
+    def _compose_bed(bed: Music, raw: Path, end_hold: float, work: Path, ffmpeg: str) -> Music:
+        """Synthesize a bed that outlasts the reel, so its own closing fade never loops in."""
+        length = _video.probe_duration(raw, ffmpeg=ffmpeg) + end_hold + 4.0
+        path = work / "music_bed.wav"
+        _sound.write_wav(path, _sound.music_bed(length))
+        return replace(bed, file=path)
+
+    @staticmethod
     def _note_speech(speech: list, slide, audio: Path, seg: Path, clock: float,
                      delay: float, duration: Optional[float], ffmpeg: str) -> float:
         """Add the segment's spoken span (reel time) to ``speech``; return the next segment's start."""
@@ -161,9 +181,8 @@ class Reel:
         if bed is not None and music_fade is not None:
             bed = replace(bed, fade_in=music_fade, fade_out=music_fade)
         intro, outro = Sting.of(self.intro), Sting.of(self.outro)
-        lead_in = self.lead_in
-        if lead_in is None:
-            lead_in = _video.probe_duration(intro.file, ffmpeg=ffmpeg) if intro else 0.0
+        if any(x is not None and x.composed for x in (bed, intro, outro)):
+            _sound.require_numpy()  # fail now, not after every slide is built
 
         keep_work = workdir is not None
         work = Path(workdir) if workdir else Path(tempfile.mkdtemp(prefix="slidecast_"))
@@ -179,6 +198,11 @@ class Reel:
         speech: List[tuple] = []
         clock = 0.0
         try:
+            intro = self._compose_sting(intro, work / "intro_sting.wav", _sound.intro_sting)
+            outro = self._compose_sting(outro, work / "outro_sting.wav", _sound.outro_sting)
+            lead_in = self.lead_in
+            if lead_in is None:
+                lead_in = _video.probe_duration(intro.file, ffmpeg=ffmpeg) if intro else 0.0
             with renderer as r:
                 for i, slide in enumerate(self.slides, start=1):
                     if on_progress:
@@ -217,8 +241,11 @@ class Reel:
             need_master = fade_in > 0 or fade_out > 0 or end_hold > 0
             need_mix = bool(bed or intro or outro) or self.loudness is not None
             raw = work / "_concat.mp4"
-            if need_master:
+            if need_master or need_mix:
                 _video.concat(segments, raw, ffmpeg=ffmpeg)
+                if bed is not None and bed.composed:
+                    bed = self._compose_bed(bed, raw, end_hold, work, ffmpeg)
+            if need_master:
                 _video.master(
                     raw, out_path, music=bed, intro=intro, outro=outro,
                     fade_in=fade_in, fade_out=fade_out, end_hold=end_hold,
@@ -226,7 +253,6 @@ class Reel:
                     speech=speech if plan_duck else None,
                 )
             elif need_mix:
-                _video.concat(segments, raw, ffmpeg=ffmpeg)
                 _video.mix_music(
                     raw, out_path, bed, intro=intro, outro=outro,
                     loudness=self.loudness, ffmpeg=ffmpeg,

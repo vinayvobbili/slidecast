@@ -20,6 +20,7 @@ Model:
     Clip(video, narration="", tail_pad=0.0, min_duration=0.0)
     Music(file, volume=0.22, fade_in=1.0, fade_out=2.0, duck=True)
     Sting(file, volume=None)   # intro 0.75 / outro 0.7 when None
+    # file="compose" synthesizes the bed or sting at render time (numpy)
     Reel(width, height, fps, tts=..., renderer=..., music=..., intro=..., outro=...,
          lead_in=None, loudness=None).add(...).add_clip(...).render(out)
 Text-to-speech (``synthesize(text, path) -> seconds | None``):
@@ -31,6 +32,9 @@ Text-to-speech (``synthesize(text, path) -> seconds | None``):
 Renderers (HTML -> PNG, used as a context manager):
     PlaywrightRenderer    — headless Chromium (default)
     ChromeBinaryRenderer  — drive an existing Chrome binary by path
+Composed music (numpy, the [compose] extra), nothing to license:
+    music_bed(length, bpm=84, seed=7) / intro_sting(seed=7) / outro_sting()
+    write_wav(path, samples) / compose(out_dir, length, bpm, seed)
 ffmpeg steps (injectable runner, for direct use/testing):
     build_segment(...) / build_clip_segment(...) / concat(...) / poster(...)
     master(...) / mix_music(...)   # fades + end-hold / bed, stings, loudness
@@ -41,6 +45,7 @@ from .ffmpeg import FFmpegNotFound, find_ffmpeg
 from .models import Clip, Music, Segment, Slide, Sting
 from .reel import Reel
 from .render import ChromeBinaryRenderer, PlaywrightRenderer, Renderer
+from .sound import compose, intro_sting, music_bed, outro_sting, write_wav
 from .tts import (
     GTTSTTS,
     KokoroTTS,
@@ -81,6 +86,11 @@ __all__ = [
     "SilentTTS",
     "apply_phonetic",
     "wav_duration",
+    "compose",
+    "music_bed",
+    "intro_sting",
+    "outro_sting",
+    "write_wav",
     "build_segment",
     "build_clip_segment",
     "concat",

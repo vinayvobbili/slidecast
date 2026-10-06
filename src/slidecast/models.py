@@ -68,6 +68,10 @@ class Clip:
 
 Segment = Union[Slide, Clip]
 
+# A Music or Sting ``file`` of "compose" asks the reel to synthesize one (see
+# :mod:`slidecast.sound`) into its work directory at render time.
+COMPOSE = "compose"
+
 
 @dataclass
 class Music:
@@ -78,7 +82,8 @@ class Music:
     sting), then swells back in the gaps.
 
     Attributes:
-        file: Path to the track (any format ffmpeg reads).
+        file: Path to the track (any format ffmpeg reads), or "compose" to have
+            a :class:`Reel` synthesize a bed as long as the reel (needs numpy).
         volume: Linear gain on the bed in the pauses; 0.22 is about -13 dB.
         fade_in / fade_out: Seconds to fade the bed in at the start and out at
             the end. 0 skips the fade.
@@ -104,6 +109,11 @@ class Music:
         if min(self.volume, self.fade_in, self.fade_out, self.duck_db) < 0:
             raise ValueError("volume, fade_in, fade_out and duck_db must be non-negative")
 
+    @property
+    def composed(self) -> bool:
+        """True when ``file`` is "compose": the reel synthesizes it at render time."""
+        return str(self.file) == COMPOSE
+
     @classmethod
     def of(cls, value) -> Optional["Music"]:
         """Coerce a path (or an existing :class:`Music`, or None) into a Music."""
@@ -119,7 +129,8 @@ class Sting:
     An intro starts at t=0; an outro is placed so it ends with the reel.
 
     Attributes:
-        file: Path to the sting (any format ffmpeg reads).
+        file: Path to the sting (any format ffmpeg reads), or "compose" to have
+            a :class:`Reel` synthesize the stock intro or outro (needs numpy).
         volume: Linear gain. None (the default) means 0.75 for an intro and 0.7
             for an outro, clearly above the bed.
     """
@@ -133,6 +144,11 @@ class Sting:
         self.file = Path(self.file)
         if self.volume is not None and self.volume < 0:
             raise ValueError("volume must be non-negative")
+
+    @property
+    def composed(self) -> bool:
+        """True when ``file`` is "compose": the reel synthesizes it at render time."""
+        return str(self.file) == COMPOSE
 
     @classmethod
     def of(cls, value) -> Optional["Sting"]:

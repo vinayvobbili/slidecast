@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "Vinay Vobbilichetty" }]
-keywords = ["video", "tts", "slides", "screencast", "ffmpeg", "playwright", "narration", "kokoro", "mlx"]
+keywords = ["video", "tts", "slides", "screencast", "ffmpeg", "playwright", "narration", "kokoro", "mlx", "music"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -28,12 +28,14 @@ playwright = ["playwright>=1.40"]
 gtts = ["gtts>=2.3"]
 ffmpeg = ["imageio-ffmpeg>=0.4"]
 yaml = ["pyyaml>=6"]
+# Synthesize a music bed and stings (slidecast compose, or music: compose).
+compose = ["numpy>=1.24"]
 # In-process Kokoro on Apple Silicon. mlx only builds for arm64 macOS.
 mlx = [
     "mlx-audio>=0.5; sys_platform == 'darwin' and platform_machine == 'arm64'",
     "misaki[en]>=0.9; sys_platform == 'darwin' and platform_machine == 'arm64'",
 ]
-dev = ["pytest>=7", "pyyaml>=6"]
+dev = ["pytest>=7", "pyyaml>=6", "numpy>=1.24"]
 
 [project.scripts]
 slidecast = "slidecast.cli:main"

@@ -215,3 +215,55 @@ def test_explicit_lead_in_and_loudness_without_music(monkeypatch, tmp_path):
     assert "tpad=start_mode=clone:start_duration=0.500" in clip[clip.index("-filter_complex") + 1]
     assert final[final.index("-c:v") + 1] == "copy"
     assert "loudnorm=I=-16:" in final[final.index("-filter_complex") + 1]
+
+
+def test_compose_synthesizes_stings_up_front_and_a_bed_that_outlasts_the_reel(monkeypatch, tmp_path):
+    pytest.importorskip("numpy")
+    from slidecast import Music, Sting, video
+    from slidecast.tts import wav_duration
+
+    runner = _patch_video_runner(monkeypatch)
+    # The reel is 3 s, plus a 1 s end-hold from master.
+    monkeypatch.setattr(video, "probe_duration",
+                        lambda media, ffmpeg=None: wav_duration(media) or 3.0)
+    work = tmp_path / "work"
+    reel = Reel(renderer=FakeRenderer(), tts=SilentTTS(seconds=1.0), lead_in=0.5,
+                music=Music("compose", volume=0.2), intro="compose", outro=Sting("compose", 0.6))
+    reel.add("<h1>a</h1>", "hello")
+    reel.render(tmp_path / "out.mp4", ffmpeg="ff", workdir=work, end_hold=1.0)
+
+    assert wav_duration(work / "intro_sting.wav") == pytest.approx(5.1, abs=0.01)
+    assert wav_duration(work / "outro_sting.wav") == pytest.approx(5.0)
+    assert wav_duration(work / "music_bed.wav") == pytest.approx(3.0 + 1.0 + 4.0)
+    (mix,) = _mix_commands(runner)
+    for name in ("music_bed.wav", "intro_sting.wav", "outro_sting.wav"):
+        assert str(work / name) in mix
+    assert "compose" not in mix
+    assert reel.music.file.name == "compose"  # the spec is untouched; only this render composed
+
+
+def test_composed_intro_sets_the_default_lead_in(monkeypatch, tmp_path):
+    pytest.importorskip("numpy")
+    from slidecast.tts import wav_duration
+
+    runner = _patch_video_runner(monkeypatch)
+    import slidecast.video as video
+    monkeypatch.setattr(video, "probe_duration", lambda media, ffmpeg=None: wav_duration(media) or 2.0)
+    reel = Reel(renderer=FakeRenderer(), tts=SilentTTS(seconds=1.0), intro="compose")
+    reel.add("<h1>a</h1>", "hello")
+    reel.render(tmp_path / "out.mp4", ffmpeg="ff")
+    first = runner.commands[0]
+    assert first[first.index("-af") + 1] == "adelay=5100:all=1,apad"
+
+
+def test_compose_without_numpy_fails_before_any_slide_is_built(monkeypatch, tmp_path):
+    from slidecast import sound
+
+    runner = _patch_video_runner(monkeypatch)
+    monkeypatch.setattr(sound, "np", None)
+    renderer = FakeRenderer()
+    reel = Reel(renderer=renderer, music="compose")
+    reel.add("<h1>a</h1>", "hello")
+    with pytest.raises(ImportError, match="slidecast\\[compose\\]"):
+        reel.render(tmp_path / "out.mp4", ffmpeg="ff")
+    assert not renderer.calls and not runner.commands
