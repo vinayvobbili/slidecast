@@ -40,7 +40,7 @@ def test_clip_rejects_missing_video_and_negative_timing():
 def test_music_defaults_to_a_low_ducked_bed():
     m = Music("bed.mp3")
     assert m.file == Path("bed.mp3")
-    assert (m.volume, m.fade_in, m.fade_out, m.duck) == (0.22, 1.0, 2.0, True)
+    assert (m.volume, m.fade_in, m.fade_out, m.duck, m.duck_db) == (0.22, 1.0, 2.0, True, 12.0)
 
 
 def test_music_rejects_bad_values():
@@ -50,6 +50,8 @@ def test_music_rejects_bad_values():
         Music("bed.mp3", volume=-0.1)
     with pytest.raises(ValueError):
         Music("bed.mp3", fade_out=-1)
+    with pytest.raises(ValueError):
+        Music("bed.mp3", duck_db=-3)
 
 
 def test_music_and_sting_coerce_paths():

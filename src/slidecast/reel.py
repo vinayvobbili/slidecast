@@ -110,6 +110,17 @@ class Reel:
         duration = max(length, spoken, clip.min_duration)
         return duration, duration - length
 
+    @staticmethod
+    def _note_speech(speech: list, slide, audio: Path, seg: Path, clock: float,
+                     delay: float, duration: Optional[float], ffmpeg: str) -> float:
+        """Add the segment's spoken span (reel time) to ``speech``; return the next segment's start."""
+        if slide.narration.strip():
+            start = clock + delay
+            speech.append((start, start + _video.probe_duration(audio, ffmpeg=ffmpeg)))
+        if duration is None:  # the audio drove its length
+            duration = _video.probe_duration(seg, ffmpeg=ffmpeg)
+        return clock + duration
+
     def render(
         self,
         out_path,
@@ -163,6 +174,10 @@ class Reel:
 
         segments: List[Path] = []
         total = len(self.slides)
+        # When each line is spoken, so a ducking bed can dip under exactly those.
+        plan_duck = bed is not None and bed.duck
+        speech: List[tuple] = []
+        clock = 0.0
         try:
             with renderer as r:
                 for i, slide in enumerate(self.slides, start=1):
@@ -181,6 +196,9 @@ class Reel:
                             ffmpeg=ffmpeg,
                         )
                         segments.append(seg)
+                        if plan_duck:
+                            clock = self._note_speech(speech, slide, audio, seg, clock,
+                                                      delay, duration + delay, ffmpeg)
                         continue
                     png = work / f"s{i:03d}.png"
                     r.screenshot(slide.html, png, width=self.width, height=self.height)
@@ -193,6 +211,9 @@ class Reel:
                         duration=duration, delay=delay, ffmpeg=ffmpeg,
                     )
                     segments.append(seg)
+                    if plan_duck:
+                        clock = self._note_speech(speech, slide, audio, seg, clock,
+                                                  delay, duration, ffmpeg)
             need_master = fade_in > 0 or fade_out > 0 or end_hold > 0
             need_mix = bool(bed or intro or outro) or self.loudness is not None
             raw = work / "_concat.mp4"
@@ -202,12 +223,14 @@ class Reel:
                     raw, out_path, music=bed, intro=intro, outro=outro,
                     fade_in=fade_in, fade_out=fade_out, end_hold=end_hold,
                     loudness=self.loudness, ffmpeg=ffmpeg,
+                    speech=speech if plan_duck else None,
                 )
             elif need_mix:
                 _video.concat(segments, raw, ffmpeg=ffmpeg)
                 _video.mix_music(
                     raw, out_path, bed, intro=intro, outro=outro,
                     loudness=self.loudness, ffmpeg=ffmpeg,
+                    speech=speech if plan_duck else None,
                 )
             else:
                 _video.concat(segments, out_path, ffmpeg=ffmpeg)

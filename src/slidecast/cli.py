@@ -13,7 +13,7 @@ A spec is YAML or JSON::
       voice: af_heart
       response_format: wav
     music: bed.mp3            # a path, or a mapping:
-    # music: {file: bed.mp3, volume: 0.22, fade_in: 1.0, fade_out: 2.0, duck: true}
+    # music: {file: bed.mp3, volume: 0.22, fade_in: 1.0, fade_out: 2.0, duck: true, duck_db: 12}
     intro: sting.wav          # or {file: sting.wav, volume: 0.75}
     outro: {file: outro.wav, volume: 0.7}
     lead_in: 1.8              # silence before the first narration (default: intro length)
@@ -87,7 +87,7 @@ def _build_music(cfg: Any, base: Path):
     if not cfg:
         return None
     return Music(**_audio_cfg(cfg, base, "music", {
-        "volume": float, "fade_in": float, "fade_out": float, "duck": bool}))
+        "volume": float, "fade_in": float, "fade_out": float, "duck": bool, "duck_db": float}))
 
 
 def _build_sting(cfg: Any, base: Path, key: str):

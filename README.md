@@ -68,8 +68,11 @@ reel = Reel(tts=..., music=Music("bed.mp3", volume=0.22, duck=True),
             intro="intro.wav", outro=Sting("outro.wav", volume=0.7), loudness=-16)
 ```
 
-The bed loops to the reel's length, fades in and out, and is ducked (sidechain
-compressed) so it dips while someone speaks or a sting plays. The intro plays
+The bed loops to the reel's length and fades in and out. `volume` is its level
+in the pauses. While someone speaks or a sting plays it dips `duck_db` lower
+(12 dB by default): the reel knows when each line starts and ends, so the bed
+eases down just before the line and swells back in the pause after it, with no
+pumping between words. The intro plays
 from the start, and the first narration waits for it (`lead_in`, which defaults
 to the intro's length). The outro is timed to end on the last frame. The
 narration keeps its level. `loudness` (LUFS) normalizes the final audio, and is
@@ -91,7 +94,7 @@ tts:
   url: http://127.0.0.1:8021/v1/audio/speech
   voice: af_heart
   response_format: wav
-music: bed.mp3            # or {file, volume: 0.22, fade_in: 1.0, fade_out: 2.0, duck: true}
+music: bed.mp3            # or {file, volume: 0.22, fade_in: 1.0, fade_out: 2.0, duck: true, duck_db: 12}
 intro: intro.wav          # or {file, volume: 0.75}; the first narration waits for it
 outro: {file: outro.wav, volume: 0.7}   # ends with the reel
 lead_in: 1.8              # optional: silence before the first narration (default: intro length)
@@ -136,7 +139,7 @@ without changing the on-screen text.
 - `PlaywrightRenderer` — headless Chromium, launched once per reel (default).
 - `ChromeBinaryRenderer` — drive an existing Chrome/Chromium binary by path.
 
-**Music** — `Music(file, volume, fade_in, fade_out, duck)` for the bed, and
+**Music** — `Music(file, volume, fade_in, fade_out, duck, duck_db)` for the bed, and
 `Sting(file, volume)` for the intro and outro. A plain path works for either
 and uses the defaults.
 

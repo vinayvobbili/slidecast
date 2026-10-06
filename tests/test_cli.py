@@ -102,6 +102,7 @@ def test_music_stings_lead_in_and_loudness_as_mappings(tmp_path):
         "  fade_in: 0.5\n"
         "  fade_out: 3\n"
         "  duck: false\n"
+        "  duck_db: 15\n"
         "intro: sting.wav\n"
         "outro: {file: end.wav, volume: 0.6}\n"
         "lead_in: 1.8\n"
@@ -110,7 +111,7 @@ def test_music_stings_lead_in_and_loudness_as_mappings(tmp_path):
     )
     reel = _build_reel(_load_spec(spec), tmp_path)
     assert reel.music == Music(tmp_path / "bed.mp3", volume=0.1, fade_in=0.5,
-                               fade_out=3.0, duck=False)
+                               fade_out=3.0, duck=False, duck_db=15.0)
     assert reel.intro == Sting(tmp_path / "sting.wav")
     assert reel.outro == Sting(tmp_path / "end.wav", volume=0.6)
     assert reel.lead_in == 1.8 and reel.loudness == -16.0

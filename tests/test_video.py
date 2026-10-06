@@ -166,6 +166,23 @@ def test_mix_music_loops_trims_fades_ducks_and_copies_video():
     assert DUCK == "threshold=0.02:ratio=8:attack=20:release=400"
 
 
+def test_mix_music_with_speech_times_plans_the_dip_instead_of_compressing():
+    runner = FakeRunner()
+    mix_music(Path("in.mp4"), Path("out.mp4"), Music("bed.mp3", duck_db=6),
+              outro="out.wav", total_duration=20.0, outro_duration=4.0,
+              speech=[(1.0, 5.0), (7.0, 12.0)], ffmpeg="ff", runner=runner)
+    fc = _filter_complex(runner.commands[0])
+    assert "sidechaincompress" not in fc and "asplit" not in fc
+    curve = ("max(max(clip((t-0.750)/0.25,0,1)*clip((5.600-t)/0.6,0,1),"
+             "clip((t-6.750)/0.25,0,1)*clip((12.600-t)/0.6,0,1)),"
+             "clip((t-15.750)/0.25,0,1)*clip((20.600-t)/0.6,0,1))")  # the outro: 16-20 s
+    assert (f"[1:a]atrim=0:20.000,asetpts=PTS-STARTPTS,volume=0.22,"
+            f"aformat=sample_rates=48000:channel_layouts=stereo,"
+            f"asetnsamples=n=480,volume='0.22*(1-0.4988*{curve})':eval=frame,"
+            f"afade=t=in:st=0:d=1.000,afade=t=out:st=18.000:d=2.000[bed]") in fc
+    assert "[narr][outro]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[voice]" in fc
+
+
 def test_mix_music_without_ducking_just_lays_the_bed_under():
     runner = FakeRunner()
     mix_music(Path("in.mp4"), Path("out.mp4"),

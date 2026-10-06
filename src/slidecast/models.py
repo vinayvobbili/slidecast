@@ -79,12 +79,15 @@ class Music:
 
     Attributes:
         file: Path to the track (any format ffmpeg reads).
-        volume: Linear gain on the bed before ducking; 0.22 (about -13 dB) sits
-            under speech once the duck pulls it down while the voice talks.
+        volume: Linear gain on the bed in the pauses; 0.22 is about -13 dB.
         fade_in / fade_out: Seconds to fade the bed in at the start and out at
             the end. 0 skips the fade.
-        duck: Sidechain-compress the bed under the narration so it dips while
-            the voice is talking.
+        duck: Pull the bed down while the voice is talking.
+        duck_db: How far it dips under the voice, in dB. A :class:`Reel` knows
+            when each line is spoken, so the bed eases down just before each
+            line, holds there, and swells back in the pause after it. Without
+            those times (:func:`mix_music` on a finished video) a sidechain
+            compressor follows the voice instead, and this is ignored.
     """
 
     file: Union[str, Path]
@@ -92,13 +95,14 @@ class Music:
     fade_in: float = 1.0
     fade_out: float = 2.0
     duck: bool = True
+    duck_db: float = 12.0
 
     def __post_init__(self) -> None:
         if not str(self.file).strip():
             raise ValueError("Music.file must be a path to an audio file")
         self.file = Path(self.file)
-        if self.volume < 0 or self.fade_in < 0 or self.fade_out < 0:
-            raise ValueError("volume, fade_in and fade_out must be non-negative")
+        if min(self.volume, self.fade_in, self.fade_out, self.duck_db) < 0:
+            raise ValueError("volume, fade_in, fade_out and duck_db must be non-negative")
 
     @classmethod
     def of(cls, value) -> Optional["Music"]:

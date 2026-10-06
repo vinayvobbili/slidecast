@@ -24,6 +24,11 @@ from .models import Music, Sting
 # compressed 8:1, so normal speech pulls it down by ~10-12 dB. A 400 ms release
 # lets it swell back in pauses without pumping between words.
 DUCK = "threshold=0.02:ratio=8:attack=20:release=400"
+# When the speech times are known the bed follows a planned curve instead: it
+# eases down over DUCK_ATTACK seconds before each line and back up over
+# DUCK_RELEASE after it, so it sits low under the voice and swells in the pauses.
+DUCK_ATTACK = 0.25
+DUCK_RELEASE = 0.6
 # Default sting levels, when a Sting doesn't set its own volume.
 INTRO_VOLUME = 0.75
 OUTRO_VOLUME = 0.7
@@ -218,6 +223,25 @@ def _loudnorm(target: float) -> str:
     return f"loudnorm=I={target:g}:TP=-1.5:LRA=11,aresample=48000"
 
 
+Span = Tuple[float, float]
+
+
+def _duck_curve(music: Music, spans: List[Span]) -> str:
+    """The bed's volume over time: ``volume`` in the gaps, ``duck_db`` lower under each span.
+
+    Each span is a trapezoid (ramp down, hold, ramp up); overlapping ramps take
+    the deeper dip, so a short gap only half-swells. Small frames keep the
+    ramps smooth, since ``volume`` re-evaluates once per frame.
+    """
+    depth = ""
+    for start, end in spans:
+        term = (f"clip((t-{start - DUCK_ATTACK:.3f})/{DUCK_ATTACK:g},0,1)"
+                f"*clip(({end + DUCK_RELEASE:.3f}-t)/{DUCK_RELEASE:g},0,1)")
+        depth = f"max({depth},{term})" if depth else term
+    dip = 1 - 10 ** (-music.duck_db / 20)
+    return f"asetnsamples=n=480,volume='{music.volume:g}*(1-{dip:.4f}*{depth})':eval=frame"
+
+
 def _audio_graph(
     narration: str,
     total: float,
@@ -227,6 +251,8 @@ def _audio_graph(
     outro: Optional[Sting],
     outro_duration: float,
     loudness: Optional[float] = None,
+    speech: Optional[List[Span]] = None,
+    intro_duration: float = 0.0,
 ) -> Tuple[List[str], str]:
     """Build the audio half of the mix: narration + stings + bed -> ``[a]``.
 
@@ -238,6 +264,10 @@ def _audio_graph(
     narration's rate (24 kHz for Kokoro) and dull the music. The narration stays
     at full level; only the bed is attenuated. The final mix runs through a
     safety limiter, then ``loudnorm`` if ``loudness`` (integrated LUFS) is set.
+
+    ``speech`` lists when the voice talks, as (start, end) seconds. With it a
+    ducking bed follows :func:`_duck_curve` (dipping under the stings too)
+    rather than a sidechain compressor.
     """
     if not (music or intro or outro):
         tail = f",{_loudnorm(loudness)}" if loudness is not None else ""
@@ -265,9 +295,17 @@ def _audio_graph(
         graph.append(_amix(voices, final))
         return inputs, ";".join(graph)
 
-    # The voice track is narration plus stings; with ducking it is also the
-    # sidechain key, so the bed dips under the stings as well as the speech.
-    if music.duck:
+    curve = None
+    if music.duck and speech is not None:
+        spans = list(speech)
+        if intro is not None and intro_duration > 0:
+            spans.insert(0, (0.0, intro_duration))
+        if outro is not None and outro_duration > 0:
+            spans.append((max(total - outro_duration, 0.0), total))
+        curve = _duck_curve(music, spans) if spans else None
+    # The voice track is narration plus stings; with ducking by compressor it is
+    # also the sidechain key, so the bed dips under the stings as well as the speech.
+    if music.duck and curve is None:
         if len(voices) > 1:
             graph.append(_amix(voices, ",asplit=2[voice][key]"))
         else:
@@ -289,7 +327,9 @@ def _audio_graph(
     if music.fade_out > 0:
         fades.append(f"afade=t=out:st={max(total - music.fade_out, 0.0):.3f}"
                      f":d={music.fade_out:.3f}")
-    if music.duck:
+    if curve is not None:
+        graph.append(f"[1:a]{','.join([*bed, curve, *fades])}[bed]")
+    elif music.duck:
         graph.append(f"[1:a]{','.join(bed)}[music]")
         graph.append(f"[music][key]{','.join([f'sidechaincompress={DUCK}', *fades])}[bed]")
     else:
@@ -304,6 +344,14 @@ def _outro_length(outro: Optional[Sting], outro_duration: Optional[float], ffmpe
     if outro_duration is None:
         return probe_duration(outro.file, ffmpeg=ffmpeg)
     return outro_duration
+
+
+def _intro_length(music: Optional[Music], intro: Optional[Sting],
+                  speech: Optional[List[Span]], ffmpeg: str) -> float:
+    # Only the planned duck curve needs it, to dip the bed under the intro.
+    if intro is None or music is None or not music.duck or speech is None:
+        return 0.0
+    return probe_duration(intro.file, ffmpeg=ffmpeg)
 
 
 def master(
@@ -323,6 +371,7 @@ def master(
     loudness: Optional[float] = None,
     audio_bitrate: str = "192k",
     ffmpeg: Optional[str] = None,
+    speech: Optional[List[Span]] = None,
     runner=None,
 ) -> Path:
     """Finish a concatenated reel: fade in/out, hold on the last frame, score it.
@@ -371,6 +420,7 @@ def master(
     inputs, agraph = _audio_graph(
         f"apad=pad_dur={end_hold:.3f}", total, music=music, intro=intro, outro=outro,
         outro_duration=_outro_length(outro, outro_duration, ffmpeg), loudness=loudness,
+        speech=speech, intro_duration=_intro_length(music, intro, speech, ffmpeg),
     )
     cmd: List[str] = [
         ffmpeg, "-y", "-loglevel", "error", "-i", str(video), *inputs,
@@ -396,6 +446,7 @@ def mix_music(
     loudness: Optional[float] = None,
     audio_bitrate: str = "192k",
     ffmpeg: Optional[str] = None,
+    speech: Optional[List[Span]] = None,
     runner=None,
 ) -> Path:
     """Lay a music bed and/or intro/outro stings under a reel's narration.
@@ -404,8 +455,9 @@ def mix_music(
 
     * ``music`` — a :class:`Music` (or a path, for its defaults): looped to the
       reel's length and trimmed to it, set to ``volume``, faded in and out, and,
-      with ``duck``, sidechain-compressed under the voice so it dips while
-      someone speaks.
+      with ``duck``, pulled down while someone speaks: along a planned curve
+      when ``speech`` gives the (start, end) of each line, otherwise by a
+      sidechain compressor keyed on the voice.
     * ``intro`` / ``outro`` — :class:`Sting` (or path) cues. The intro starts at
       t=0; the outro is delayed so it ends with the reel. Neither is ducked; a
       ducking bed dips under them too.
@@ -426,6 +478,7 @@ def mix_music(
         f"apad=whole_dur={total_duration:.3f}", total_duration,
         music=music, intro=intro, outro=outro,
         outro_duration=_outro_length(outro, outro_duration, ffmpeg), loudness=loudness,
+        speech=speech, intro_duration=_intro_length(music, intro, speech, ffmpeg),
     )
     cmd: List[str] = [
         ffmpeg, "-y", "-loglevel", "error", "-i", str(video), *inputs,

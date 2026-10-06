@@ -148,7 +148,10 @@ def test_music_alone_is_mixed_with_the_video_copied(monkeypatch, tmp_path):
     assert "-af" in seg and seg[seg.index("-af") + 1] == "apad"  # no intro -> no lead-in
     assert "concat" in cat and cat[-1].endswith("_concat.mp4")
     assert mix[mix.index("-c:v") + 1] == "copy" and "bed.mp3" in mix
-    assert "sidechaincompress" in mix[mix.index("-filter_complex") + 1]
+    fc = mix[mix.index("-filter_complex") + 1]
+    # The reel knows when the line is spoken (0-2 s), so the bed follows a planned dip.
+    assert "sidechaincompress" not in fc
+    assert "volume='0.22*(1-0.7488*clip((t--0.250)/0.25,0,1)*clip((2.600-t)/0.6,0,1))':eval=frame" in fc
     assert mix[-1] == str(tmp_path / "out.mp4")
     assert isinstance(reel.music, str)  # coerced per render, not rewritten
     assert Music.of(reel.music).volume == 0.22
@@ -175,6 +178,27 @@ def test_intro_sets_the_lead_in_and_fades_go_through_master(monkeypatch, tmp_pat
     fc = mix[mix.index("-filter_complex") + 1]
     assert "volume=0.3," in fc and "sidechaincompress" not in fc
     assert "adelay=4000:all=1" in fc  # outro ends at 5.0 + 1.0 hold
+
+
+def test_the_bed_dips_under_each_line_and_the_intro(monkeypatch, tmp_path):
+    from slidecast import Music, video
+
+    runner = _patch_video_runner(monkeypatch)
+    probes = {"in.wav": 1.5, "s001.wav": 2.0, "s003.wav": 3.0, "_concat.mp4": 9.0}
+    monkeypatch.setattr(video, "probe_duration", lambda media, ffmpeg=None: probes[Path(media).name])
+    reel = Reel(renderer=FakeRenderer(), tts=SilentTTS(seconds=2.0),
+                music=Music("bed.mp3", volume=0.3, duck_db=20), intro="in.wav")
+    reel.add("<h1>a</h1>", "first", tail_pad=1.0)   # 0-4.5 s: intro 1.5, voice 2, pause 1
+    reel.add("<h1>b</h1>", "", min_duration=1.5)    # 4.5-6 s: silent, no span
+    reel.add("<h1>c</h1>", "third", tail_pad=0.5)   # 6-8.5 s: voice 6-9 per its wav
+    reel.render(tmp_path / "out.mp4", ffmpeg="ff")
+
+    (mix,) = _mix_commands(runner)
+    fc = mix[mix.index("-filter_complex") + 1]
+    assert "volume='0.3*(1-0.9000*" in fc  # 20 dB down under the voice
+    for start, end in ((0.0, 1.5), (1.5, 3.5), (6.0, 9.0)):  # intro, then each spoken line
+        assert f"clip((t-{start - 0.25:.3f})/0.25,0,1)*clip(({end + 0.6:.3f}-t)/0.6,0,1)" in fc
+    assert fc.count("clip((t-") == 3
 
 
 def test_explicit_lead_in_and_loudness_without_music(monkeypatch, tmp_path):
