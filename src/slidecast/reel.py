@@ -12,6 +12,7 @@ given as "compose" is synthesized (:mod:`slidecast.sound`) into the work directo
 from __future__ import annotations
 
 import contextlib
+import math
 import shutil
 import tempfile
 from dataclasses import dataclass, field, replace
@@ -27,6 +28,14 @@ from .tts import SilentTTS, TTSProvider
 
 # Seconds of quiet between the last word and the outro sting.
 OUTRO_GAP = 0.3
+
+
+def _on_frames(seconds: float, fps: int) -> float:
+    """``seconds`` rounded up to a whole number of frames. A segment's picture can only be whole frames while its
+    sound is exact, so a segment of any other length leaves the two a fraction of a frame apart, and the concat adds
+    that up over a long reel (the voice ahead of or behind its slides by seconds)."""
+    return math.ceil(seconds * fps - 1e-6) / fps
+
 
 # Called as on_progress(index, total, segment) before each segment is built.
 ProgressHook = Callable[[int, int, Segment], None]
@@ -222,6 +231,8 @@ class Reel:
                     delay = lead_in if i == 1 else 0.0
                     if isinstance(slide, Clip):
                         duration, hold = self._clip_duration(slide, audio, ffmpeg)
+                        whole = _on_frames(duration + delay, self.fps)
+                        duration, hold = whole - delay, hold + whole - delay - duration
                         _video.build_clip_segment(
                             slide.video, audio, seg,
                             width=self.width, height=self.height, fps=self.fps,
@@ -237,7 +248,7 @@ class Reel:
                     r.screenshot(slide.html, png, width=self.width, height=self.height)
                     duration = self._segment_duration(slide, audio)
                     if duration is not None:
-                        duration += delay
+                        duration = _on_frames(duration + delay, self.fps)
                     _video.build_segment(
                         png, audio, seg,
                         width=self.width, height=self.height, fps=self.fps,

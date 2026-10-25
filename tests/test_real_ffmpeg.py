@@ -145,9 +145,10 @@ def test_voice_stays_on_its_slide_across_many_segments(tmp_path, mixed):
 
 
 @pytest.mark.parametrize("mixed", [False, True], ids=["plain", "bed-stings-loudness"])
-def test_lines_of_any_length_dont_drift(tmp_path, mixed):
+@pytest.mark.parametrize("pad", [0.517, 0.537], ids=["frames-round-down", "frames-round-up"])
+def test_lines_of_any_length_dont_drift(tmp_path, mixed, pad):
     # Kokoro's lines are any length (1.013 s), not a whole number of video frames or AAC frames; what each segment
-    # rounds must not add up over a long reel.
+    # rounds must not add up over a long reel. 1.53 s is 38.25 frames at 25 fps, 1.55 s is 38.75.
     if mixed:
         pytest.importorskip("numpy")
     from slidecast.check import check
@@ -163,16 +164,20 @@ def test_lines_of_any_length_dont_drift(tmp_path, mixed):
 
     reel = Reel(width=160, height=120, fps=25, tts=ToneTTS(seconds=1.013), renderer=Alternating(png), **extra)
     for n in range(80):
-        reel.add("<p>even</p>" if n % 2 == 0 else "<p>odd</p>", f"line {n}", tail_pad=0.517)
+        reel.add("<p>even</p>" if n % 2 == 0 else "<p>odd</p>", f"line {n}", tail_pad=pad)
     out = reel.render(tmp_path / "out.mp4", ffmpeg=FFMPEG)
 
     cuts = check(out, ffmpeg=FFMPEG)
     assert len(cuts) == 79
-    # Changes get the 0.517 s pad (to a 50 ms frame), the last ones as much as the first. Medians, since a composed
+    # Changes get the pad (to a 50 ms frame), the last ones as much as the first. Medians, since a composed
     # bed's accent now and then lands in the voice's band; drift would shrink them all.
     early = statistics.median(c.quiet_before for c in cuts[:20])
     late = statistics.median(c.quiet_before for c in cuts[-20:])
     assert 0.4 <= early <= 0.65 and abs(late - early) <= 0.1, (early, late)
+    # Nor does the next line creep ahead of its slide (each segment's picture rounded to whole frames, its sound not).
+    early = statistics.median(c.quiet_after for c in cuts[:20])
+    late = statistics.median(c.quiet_after for c in cuts[-20:])
+    assert abs(late - early) <= 0.1, (early, late)
 
 
 def test_loudness_target_lifts_a_quiet_reel(tmp_path):

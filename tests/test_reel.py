@@ -45,11 +45,11 @@ def test_silent_slide_uses_min_duration(monkeypatch, tmp_path):
 def test_tail_pad_added_to_known_duration(monkeypatch, tmp_path):
     runner = _patch_video_runner(monkeypatch)
     reel = Reel(renderer=FakeRenderer(), tts=SilentTTS(seconds=2.0))
-    # SilentTTS reports a real duration, so tail_pad applies: 2.0 + 0.5
+    # SilentTTS reports a real duration, so tail_pad applies: 2.0 + 0.5, up to whole frames (63 at 25 fps)
     reel.add("<h1>x</h1>", "narrated", tail_pad=0.5)
     reel.render(tmp_path / "out.mp4", ffmpeg="ff")
     seg_cmd = runner.commands[0]
-    assert seg_cmd[seg_cmd.index("-t") + 1] == "2.500"
+    assert seg_cmd[seg_cmd.index("-t") + 1] == "2.520"
 
 
 def test_unknown_duration_provider_uses_shortest(monkeypatch, tmp_path):
@@ -95,8 +95,9 @@ def test_clip_holds_its_last_frame_while_the_narration_finishes(monkeypatch, tmp
     reel.render(tmp_path / "out.mp4", ffmpeg="ff")
 
     seg = runner.commands[0]
-    assert seg[seg.index("-t") + 1] == "6.500"
-    assert "tpad=stop_mode=clone:stop_duration=2.500" in seg[seg.index("-filter_complex") + 1]
+    # 6.0 narration + 0.5, up to whole frames; the extra 20 ms holds the last frame too.
+    assert seg[seg.index("-t") + 1] == "6.520"
+    assert "tpad=stop_mode=clone:stop_duration=2.520" in seg[seg.index("-filter_complex") + 1]
     assert not renderer.entered  # clips alone never launch a browser
 
 
@@ -188,15 +189,16 @@ def test_the_bed_dips_under_each_line_and_the_intro(monkeypatch, tmp_path):
     monkeypatch.setattr(video, "probe_duration", lambda media, ffmpeg=None: probes[Path(media).name])
     reel = Reel(renderer=FakeRenderer(), tts=SilentTTS(seconds=2.0),
                 music=Music("bed.mp3", volume=0.3, duck_db=20), intro="in.wav")
-    reel.add("<h1>a</h1>", "first", tail_pad=1.0)   # 0-4.5 s: intro 1.5, voice 2, pause 1
-    reel.add("<h1>b</h1>", "", min_duration=1.5)    # 4.5-6 s: silent, no span
-    reel.add("<h1>c</h1>", "third", tail_pad=0.5)   # 6-8.5 s: voice 6-9 per its wav
+    # Each segment is whole frames (40 ms at 25 fps), so 4.5 s is 4.52 and 1.5 s is 1.52.
+    reel.add("<h1>a</h1>", "first", tail_pad=1.0)   # 0-4.52 s: intro 1.5, voice 2, pause 1
+    reel.add("<h1>b</h1>", "", min_duration=1.5)    # 4.52-6.04 s: silent, no span
+    reel.add("<h1>c</h1>", "third", tail_pad=0.5)   # from 6.04 s: voice 6.04-9.04 per its wav
     reel.render(tmp_path / "out.mp4", ffmpeg="ff")
 
     (mix,) = _mix_commands(runner)
     fc = mix[mix.index("-filter_complex") + 1]
     assert "volume='0.3*(1-0.9000*" in fc  # 20 dB down under the voice
-    for start, end in ((0.0, 1.5), (1.5, 3.5), (6.0, 9.0)):  # intro, then each spoken line
+    for start, end in ((0.0, 1.5), (1.5, 3.5), (6.04, 9.04)):  # intro, then each spoken line
         assert f"clip((t-{start - 0.25:.3f})/0.25,0,1)*clip(({end + 0.6:.3f}-t)/0.6,0,1)" in fc
     assert fc.count("clip((t-") == 3
 
@@ -211,7 +213,7 @@ def test_explicit_lead_in_and_loudness_without_music(monkeypatch, tmp_path):
     reel.render(tmp_path / "out.mp4", ffmpeg="ff")
 
     clip, _, final = runner.commands
-    assert clip[clip.index("-t") + 1] == "4.500"
+    assert clip[clip.index("-t") + 1] == "4.520"  # 0.5 lead-in + the 4.0 s clip, up to whole frames
     assert "tpad=start_mode=clone:start_duration=0.500" in clip[clip.index("-filter_complex") + 1]
     assert final[final.index("-c:v") + 1] == "copy"
     assert "loudnorm=I=-16:" in final[final.index("-filter_complex") + 1]
