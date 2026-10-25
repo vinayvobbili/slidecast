@@ -66,6 +66,18 @@ def apply_phonetic(text: str, rules: Optional[Dict[str, str]]) -> str:
     return text
 
 
+# Words Kokoro says with the wrong one of their two sounds, fixed with misaki's own override, "[word](/phonemes/)".
+# Its tagger reads "went live" as the verb ("liv"): live after these words, or before a noun it describes, gets the
+# adjective's sound ("lyve"). "I live in" is left to the tagger, which gets the verb right.
+_LYVE = r"[\g<w>](/lˈIv/)"
+KOKORO_FIXES: Dict[str, str] = {
+    r"(?i)\b(?P<pre>(?:go|goes|going|went|gone|is|are|was|were|be|been|it's|that's|what's|ran it|run it|"
+    r"running it)\s+)(?P<w>live)\b": r"\g<pre>" + _LYVE,
+    r"(?i)(?<!\[)\b(?P<w>live)(?=\s+(?:runs?|tests?|systems?|data|demos?|traffic|calls?|customers?|users?|"
+    r"environments?|incidents?|alerts?|feeds?|sites?|versions?|coding|streams?|events?)\b)": _LYVE,
+}
+
+
 class SilentTTS:
     """Emit a silent WAV of a fixed length. Pure stdlib, fully deterministic."""
 
@@ -189,6 +201,9 @@ class MLXKokoroTTS:
     English, "b" British. If Homebrew's ``espeak-ng`` is installed it is used for
     out-of-dictionary words (see :func:`use_homebrew_espeak`).
 
+    ``fixes`` (default :data:`KOKORO_FIXES`) are rules like ``phonetic`` that
+    every reel needs, applied after it; pass ``None`` to turn them off.
+
     ``loader`` maps a model id to a loaded model (default ``mlx_audio``'s
     ``load_model``); tests swap in a stub.
     """
@@ -201,12 +216,14 @@ class MLXKokoroTTS:
         lang_code: str = "a",
         phonetic: Optional[Dict[str, str]] = None,
         loader: Optional[Callable[[str], object]] = None,
+        fixes: Optional[Dict[str, str]] = KOKORO_FIXES,
     ):
         self.voice = voice
         self.model = model
         self.speed = float(speed)
         self.lang_code = lang_code
         self.phonetic = phonetic
+        self.fixes = fixes
         self._loader = loader or _load_mlx_model
         self._model = None
 
@@ -215,7 +232,7 @@ class MLXKokoroTTS:
             self._model = self._loader(self.model)
         chunks, rate = [], 24000
         for result in self._model.generate(
-            apply_phonetic(text, self.phonetic), voice=self.voice,
+            apply_phonetic(apply_phonetic(text, self.phonetic), self.fixes), voice=self.voice,
             speed=self.speed, lang_code=self.lang_code,
         ):
             chunks.append(result.audio)

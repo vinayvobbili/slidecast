@@ -142,6 +142,39 @@ def test_mlx_kokoro_loads_once_and_writes_a_measured_wav(tmp_path):
     assert struct.unpack("<4h", frames) == (0, 16383, -16383, 32767)  # 2.0 clipped
 
 
+@pytest.mark.parametrize("line, said", [
+    ("We went live in production.", "We went [live](/lˈIv/) in production."),
+    ("Going live is a toggle.", "Going [live](/lˈIv/) is a toggle."),
+    ("I ran it live on a copy.", "I ran it [live](/lˈIv/) on a copy."),
+    ("The live runs used 2 min.", "The [live](/lˈIv/) runs used 2 min."),
+    ("Is it live now?", "Is it live now?"),  # "it live" alone isn't a pattern: left to the tagger
+    ("I live in North Carolina.", "I live in North Carolina."),
+    ("An assistant that lives in Webex.", "An assistant that lives in Webex."),
+])
+def test_kokoro_fixes_give_live_the_adjectives_sound_only_where_its_one(line, said):
+    from slidecast.tts import KOKORO_FIXES
+
+    assert apply_phonetic(line, KOKORO_FIXES) == said
+
+
+def test_mlx_kokoro_applies_the_fixes_after_the_callers_rules(tmp_path):
+    from slidecast import MLXKokoroTTS
+
+    model = _FakeKokoro()
+    MLXKokoroTTS(phonetic={r"\bSOC\b": "sock"}, loader=lambda name: model).synthesize(
+        "The SOC went live.", tmp_path / "a.wav")
+    MLXKokoroTTS(fixes=None, loader=lambda name: model).synthesize("We went live.", tmp_path / "b.wav")
+    assert [text for text, _ in model.calls] == ["The sock went [live](/lˈIv/).", "We went live."]
+
+
+def test_misaki_takes_the_adjectives_sound_from_the_fix():
+    en = pytest.importorskip("misaki.en")
+    from slidecast.tts import KOKORO_FIXES
+
+    phonemes, _ = en.G2P(trf=False, british=False)(apply_phonetic("We went live in production.", KOKORO_FIXES))
+    assert "lˈIv" in phonemes and "lˈɪv" not in phonemes
+
+
 def test_mlx_kokoro_explains_how_to_install_it(monkeypatch, tmp_path):
     import builtins
 
