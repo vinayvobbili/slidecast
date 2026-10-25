@@ -159,7 +159,15 @@ def main(argv=None) -> int:
     k.add_argument("video", type=Path, help="a rendered .mp4")
     k.add_argument("--min-gap", type=float, default=0.0, metavar="SECONDS",
                    help="exit 1 when a change comes less than this long after the voice")
+    k.add_argument("--levels", type=float, nargs=2, metavar=("START", "END"),
+                   help="print the voice-band level of each 50 ms frame between these seconds, instead of checking")
     args = parser.parse_args(argv)
+
+    if args.cmd == "check" and args.levels:
+        from .check import level_rows, speech, speech_levels
+        levels = speech_levels(args.video)
+        print("\n".join(level_rows(levels, *args.levels, speech(levels))))
+        return 0
 
     if args.cmd == "check":
         from .check import check

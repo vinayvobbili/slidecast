@@ -25,7 +25,9 @@ HOP = 0.05          # seconds per level frame
 RATE = 8000         # the speech band fits well under 4 kHz
 BAND = (1000, 4000)
 DROP = 18.0         # dB under the loud frames that still counts as speech
-SCENE = 0.05        # ffmpeg's scene score for a slide change
+PEAK = 10.0         # dB under the loud frames that a burst of speech must reach (a bed's swell doesn't)
+JOIN = 4            # speech frames this few (0.2 s) apart or closer belong to one burst
+SCENE = 0.05       # ffmpeg's scene score for a slide change
 
 
 @dataclass(frozen=True)
@@ -61,12 +63,38 @@ def speech_levels(video: Path, *, ffmpeg: Optional[str] = None, band=BAND, hop: 
     return levels
 
 
-def speech(levels: Sequence[float], drop: float = DROP) -> List[bool]:
-    """Which frames are speech: within ``drop`` dB of the loud ones (the 95th percentile)."""
+def speech(levels: Sequence[float], drop: float = DROP, peak: float = PEAK, join: int = JOIN) -> List[bool]:
+    """Which frames are speech: within ``drop`` dB of the loud ones (the 95th percentile), in a burst that
+    gets within ``peak`` dB of them. Frames less than ``join`` apart make one burst. A music bed that swells
+    over a long silent hold crosses the ``drop`` line but never reaches the ``peak`` one; a voice does."""
     if not levels:
         return []
     loud = sorted(levels)[int(0.95 * (len(levels) - 1))]
-    return [x > loud - drop for x in levels]
+    above = [x > loud - drop for x in levels]
+    out = [False] * len(levels)
+    i = 0
+    while i < len(levels):
+        if not above[i]:
+            i += 1
+            continue
+        end = i  # the burst runs to the last frame above the line before a gap of ``join`` frames
+        for j in range(i, len(levels)):
+            if above[j]:
+                end = j
+            elif j - end >= join:
+                break
+        if max(levels[i:end + 1]) > loud - peak:
+            out[i:end + 1] = above[i:end + 1]
+        i = end + 1
+    return out
+
+
+def level_rows(levels: Sequence[float], start: float, end: float, talking: Sequence[bool],
+               hop: float = HOP) -> List[str]:
+    """One printable row per frame from ``start`` to ``end`` seconds: time, dB, a bar, and S where it counts as speech."""
+    first, last = max(int(start / hop + 1e-6), 0), min(int(end / hop + 1e-6), len(levels))
+    return [f"{i * hop:8.2f} s {levels[i]:7.1f} dB {'#' * max(int((levels[i] + 80) / 2), 0):<40} {'S' if talking[i] else ''}"
+            for i in range(first, last)]
 
 
 def cuts(changes: Sequence[float], talking: Sequence[bool], hop: float = HOP) -> List[Cut]:
