@@ -7,6 +7,7 @@ no ffmpeg is available.
 
 import re
 import shutil
+import statistics
 import subprocess
 
 import pytest
@@ -60,11 +61,14 @@ def test_slide_and_clip_concat_into_one_reel(tmp_path):
 
 
 class ToneTTS:
-    """'Speaks' every line as a 1 s, 3 kHz mono tone at 24 kHz, like Kokoro's WAVs."""
+    """'Speaks' every line as a 3 kHz mono tone at 24 kHz, like Kokoro's WAVs: 1 s, or ``seconds``."""
+
+    def __init__(self, seconds=1.0):
+        self.seconds = seconds
 
     def synthesize(self, text, out_path):
-        _make(["-f", "lavfi", "-i", "sine=f=3000:d=1:sample_rate=24000", "-ac", "1"], out_path)
-        return 1.0
+        _make(["-f", "lavfi", "-i", f"sine=f=3000:d={self.seconds}:sample_rate=24000", "-ac", "1"], out_path)
+        return probe_duration(out_path, ffmpeg=FFMPEG)
 
 
 def _level(media, start, end, band):
@@ -117,6 +121,58 @@ def test_music_bed_ducks_under_the_voice_with_stings_at_each_end(tmp_path):
     assert _level(out, 4.1, 4.4, STING) > _level(out, 3.0, 3.4, STING) + 15
     # The bed dips while the voice talks and comes back up in the pause.
     assert _level(out, 2.1, 2.45, BED) > _level(out, 0.8, 1.4, BED) + 6
+
+
+@pytest.mark.parametrize("mixed", [False, True], ids=["plain", "bed-stings-loudness"])
+def test_voice_stays_on_its_slide_across_many_segments(tmp_path, mixed):
+    # A long reel (a 20-minute drill) must keep every line on its own slide: no drift that has slides change
+    # mid-sentence or the outro play over the last line.
+    if mixed:
+        pytest.importorskip("numpy")
+    png = _make(["-f", "lavfi", "-i", "color=c=navy:s=160x120", "-frames:v", "1"], tmp_path / "s.png")
+    extra = dict(music="compose", intro="compose", outro="compose", loudness=-16, lead_in=0.0) if mixed else {}
+    reel = Reel(width=160, height=120, fps=25, tts=ToneTTS(), renderer=PngRenderer(png), **extra)
+    for n in range(40):
+        reel.add(f"<h1>{n}</h1>", f"line {n}", tail_pad=1.0)  # tone 2n..2n+1, quiet 2n+1..2n+2
+    out = reel.render(tmp_path / "out.mp4", ffmpeg=FFMPEG)
+
+    # Every line sounds where its slide is, and the quiet after it is still quiet: the last line as clearly as the
+    # first (the composed bed and stings leave a little in the voice's band, so compare against the first).
+    def contrast(n):
+        return _level(out, 2 * n + 0.1, 2 * n + 0.9, VOICE) - _level(out, 2 * n + 1.15, 2 * n + 1.9, VOICE)
+    first, middle, last = contrast(0), contrast(20), contrast(38)
+    assert first > 10 and middle > first - 4 and last > first - 4, (first, middle, last)
+
+
+@pytest.mark.parametrize("mixed", [False, True], ids=["plain", "bed-stings-loudness"])
+def test_lines_of_any_length_dont_drift(tmp_path, mixed):
+    # Kokoro's lines are any length (1.013 s), not a whole number of video frames or AAC frames; what each segment
+    # rounds must not add up over a long reel.
+    if mixed:
+        pytest.importorskip("numpy")
+    from slidecast.check import check
+
+    png = _make(["-f", "lavfi", "-i", "color=c=navy:s=160x120", "-frames:v", "1"], tmp_path / "s.png")
+    alt = _make(["-f", "lavfi", "-i", "color=c=orange:s=160x120", "-frames:v", "1"], tmp_path / "t.png")
+    # The default lead-in: the intro plays out before the first line, as in a drill.
+    extra = dict(music="compose", intro="compose", outro="compose", loudness=-16) if mixed else {}
+
+    class Alternating(PngRenderer):
+        def screenshot(self, html, out_path, *, width, height):
+            shutil.copy(png if "even" in html else alt, out_path)
+
+    reel = Reel(width=160, height=120, fps=25, tts=ToneTTS(seconds=1.013), renderer=Alternating(png), **extra)
+    for n in range(80):
+        reel.add("<p>even</p>" if n % 2 == 0 else "<p>odd</p>", f"line {n}", tail_pad=0.517)
+    out = reel.render(tmp_path / "out.mp4", ffmpeg=FFMPEG)
+
+    cuts = check(out, ffmpeg=FFMPEG)
+    assert len(cuts) == 79
+    # Changes get the 0.517 s pad (to a 50 ms frame), the last ones as much as the first. Medians, since a composed
+    # bed's accent now and then lands in the voice's band; drift would shrink them all.
+    early = statistics.median(c.quiet_before for c in cuts[:20])
+    late = statistics.median(c.quiet_before for c in cuts[-20:])
+    assert 0.4 <= early <= 0.65 and abs(late - early) <= 0.1, (early, late)
 
 
 def test_loudness_target_lifts_a_quiet_reel(tmp_path):

@@ -35,6 +35,17 @@ OUTRO_VOLUME = 0.7
 # A safety limiter on the final mix. level=0 turns off alimiter's auto-level,
 # which would otherwise gain the whole mix up to the limit.
 LIMITER = "alimiter=limit=0.95:level=0"
+# Containers whose audio is AAC; any other segment (the reel's .mkv) keeps PCM at one rate and layout. AAC adds
+# priming and padding to every file (about 1024 samples), which a copying concat plays: each segment's voice would
+# start that much later than its picture, adding up to seconds over a long reel. PCM has exact sample counts, and
+# concat() encodes the AAC once.
+AAC_SUFFIXES = (".mp4", ".m4v", ".mov")
+
+
+def _segment_audio(out: Path, audio_bitrate: str) -> List[str]:
+    if Path(out).suffix.lower() in AAC_SUFFIXES:
+        return ["-c:a", "aac", "-b:a", audio_bitrate, "-movflags", "+faststart"]
+    return ["-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2"]
 
 
 def build_segment(
@@ -51,7 +62,7 @@ def build_segment(
     ffmpeg: Optional[str] = None,
     runner=None,
 ) -> Path:
-    """Render one still image + its audio into an H.264/AAC MP4 segment.
+    """Render one still image + its audio into an H.264 segment: AAC in an MP4, PCM in anything else (.mkv).
 
     If ``duration`` is given, the segment is exactly that long and the audio is
     padded with silence to fill it (so narration is never clipped). If it's None,
@@ -77,8 +88,7 @@ def build_segment(
         "-r", str(fps),
         "-c:v", "libx264", "-tune", "stillimage", "-pix_fmt", "yuv420p",
         "-vf", f"scale={width}:{height}",
-        "-c:a", "aac", "-b:a", audio_bitrate,
-        "-movflags", "+faststart",
+        *_segment_audio(out, audio_bitrate),
         str(out),
     ]
     runner(cmd, check=True)
@@ -107,7 +117,7 @@ def build_clip_segment(
     seconds. ``delay`` holds its first frame, silent, for that long before it
     plays. The segment is exactly ``duration`` long, with the narration padded
     by silence to fill it; the clip's own audio is dropped. Encoder settings
-    match :func:`build_segment`, so the two concat losslessly.
+    match :func:`build_segment` (PCM audio unless ``out`` is an MP4), so the two concat cleanly.
     """
     ffmpeg = ffmpeg or find_ffmpeg()
     runner = runner or subprocess.run
@@ -132,8 +142,7 @@ def build_clip_segment(
         "-t", f"{duration:.3f}",
         "-r", str(fps),
         "-c:v", "libx264", "-tune", "stillimage", "-pix_fmt", "yuv420p",
-        "-c:a", "aac", "-b:a", audio_bitrate,
-        "-movflags", "+faststart",
+        *_segment_audio(out, audio_bitrate),
         str(out),
     ]
     runner(cmd, check=True)
@@ -147,7 +156,7 @@ def concat(
     ffmpeg: Optional[str] = None,
     runner=None,
 ) -> Path:
-    """Concatenate pre-encoded segments losslessly via the concat demuxer."""
+    """Concatenate segments via the concat demuxer: the video copied losslessly, the audio encoded to AAC once."""
     if not segments:
         raise ValueError("concat() needs at least one segment")
     ffmpeg = ffmpeg or find_ffmpeg()
@@ -162,7 +171,7 @@ def concat(
                 ffmpeg, "-y", "-loglevel", "error",
                 "-f", "concat", "-safe", "0",
                 "-i", str(list_path),
-                "-c", "copy", "-movflags", "+faststart",
+                "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart",
                 str(out),
             ],
             check=True,

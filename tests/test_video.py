@@ -88,15 +88,25 @@ def test_build_segment_without_duration_uses_shortest():
     assert "scale=1920:1080" in cmd
 
 
-def test_concat_writes_listfile_and_copies(tmp_path):
+def test_build_segment_keeps_pcm_audio_outside_an_mp4():
+    # A reel's segments are .mkv with PCM, so concatenating them adds no AAC priming per segment (no drift).
     runner = FakeRunner()
-    segs = [tmp_path / "a.mp4", tmp_path / "b.mp4"]
+    build_segment(Path("img.png"), Path("a.wav"), Path("s001.mkv"), width=640, height=360, duration=2.0,
+                  ffmpeg="ff", runner=runner)
+    cmd = runner.commands[0]
+    assert cmd[cmd.index("-c:a") + 1] == "pcm_s16le" and cmd[cmd.index("-ar") + 1] == "48000"
+    assert "+faststart" not in cmd
+
+
+def test_concat_writes_listfile_copies_video_and_encodes_audio_once(tmp_path):
+    runner = FakeRunner()
+    segs = [tmp_path / "a.mkv", tmp_path / "b.mkv"]
     for s in segs:
         s.write_bytes(b"x")
     out = concat(segs, tmp_path / "final.mp4", ffmpeg="ff", runner=runner)
     cmd = runner.commands[0]
     assert "concat" in cmd
-    assert cmd[cmd.index("-c") + 1] == "copy"
+    assert cmd[cmd.index("-c:v") + 1] == "copy" and cmd[cmd.index("-c:a") + 1] == "aac"
     assert str(out) == str(tmp_path / "final.mp4")
 
 

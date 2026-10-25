@@ -217,7 +217,7 @@ class Reel:
                     if on_progress:
                         on_progress(i, total, slide)
                     audio = work / f"s{i:03d}.wav"
-                    seg = work / f"s{i:03d}.mp4"
+                    seg = work / f"s{i:03d}.mkv"  # PCM audio, so the concat can't drift (video.AAC_SUFFIXES)
                     # The first segment holds silent through the lead-in (the intro).
                     delay = lead_in if i == 1 else 0.0
                     if isinstance(slide, Clip):

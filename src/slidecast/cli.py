@@ -155,7 +155,22 @@ def main(argv=None) -> int:
     c.add_argument("--bpm", type=float, default=84, metavar="N", help="bed tempo (default 84)")
     c.add_argument("--seed", type=int, default=7, metavar="N",
                    help="same seed, same audio (default 7)")
+    k = sub.add_parser("check", help="how much quiet each slide change gets, in a rendered reel")
+    k.add_argument("video", type=Path, help="a rendered .mp4")
+    k.add_argument("--min-gap", type=float, default=0.0, metavar="SECONDS",
+                   help="exit 1 when a change comes less than this long after the voice")
     args = parser.parse_args(argv)
+
+    if args.cmd == "check":
+        from .check import check
+        found = check(args.video)
+        for n, c in enumerate(found, 1):
+            flag = "  ← cuts in" if c.quiet_before < args.min_gap else ""
+            print(f"{n:3}. {c.at:8.2f} s   quiet {c.quiet_before:.2f} s before, {c.quiet_after:.2f} s after{flag}")
+        if found:
+            low = min(found, key=lambda c: c.quiet_before)
+            print(f"{len(found)} slide changes; least quiet before one: {low.quiet_before:.2f} s at {low.at:.2f} s")
+        return 1 if any(c.quiet_before < args.min_gap for c in found) else 0
 
     if args.cmd == "compose":
         if args.length <= 0 or args.bpm <= 0:
