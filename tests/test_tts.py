@@ -157,6 +157,18 @@ def test_kokoro_fixes_give_live_the_adjectives_sound_only_where_its_one(line, sa
     assert apply_phonetic(line, KOKORO_FIXES) == said
 
 
+@pytest.mark.parametrize("line, said", [
+    ("I switched to JSON mode.", "I switched to Jason mode."),
+    ("It salvages the json from a chatty reply.", "It salvages the Jason from a chatty reply."),
+    ("JSONPath and JSONL stay as they are.", "JSONPath and JSONL stay as they are."),
+    ("Thirteen packages on PyPI.", "Thirteen packages on pie pee eye."),
+])
+def test_kokoro_fixes_say_names_as_words(line, said):
+    from slidecast.tts import KOKORO_FIXES
+
+    assert apply_phonetic(line, KOKORO_FIXES) == said
+
+
 def test_mlx_kokoro_applies_the_fixes_after_the_callers_rules(tmp_path):
     from slidecast import MLXKokoroTTS
 

@@ -75,6 +75,9 @@ KOKORO_FIXES: Dict[str, str] = {
     r"running it)\s+)(?P<w>live)\b": r"\g<pre>" + _LYVE,
     r"(?i)(?<!\[)\b(?P<w>live)(?=\s+(?:runs?|tests?|systems?|data|demos?|traffic|calls?|customers?|users?|"
     r"environments?|incidents?|alerts?|feeds?|sites?|versions?|coding|streams?|events?)\b)": _LYVE,
+    # Names said as words, which Kokoro would spell out letter by letter
+    r"(?i)\bJSON\b": "Jason",
+    r"\bPyPI\b": "pie pee eye",
 }
 
 
