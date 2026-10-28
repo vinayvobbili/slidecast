@@ -5,7 +5,7 @@ import wave
 import pytest
 
 from slidecast import SilentTTS, apply_phonetic, wav_duration
-from slidecast.tts import KokoroTTS
+from slidecast.tts import SENTENCES, KokoroTTS
 
 
 def test_silent_tts_writes_valid_wav_of_expected_length(tmp_path):
@@ -135,7 +135,7 @@ def test_mlx_kokoro_loads_once_and_writes_a_measured_wav(tmp_path):
     assert loads == ["mlx-community/Kokoro-82M-bf16"]
     text, kwargs = model.calls[0]
     assert text == "the sock desk"
-    assert kwargs == {"voice": "am_adam", "speed": 1.2, "lang_code": "a"}
+    assert kwargs == {"voice": "am_adam", "speed": 1.2, "lang_code": "a", "split_pattern": SENTENCES}
     with wave.open(str(tmp_path / "a.wav")) as w:
         assert (w.getnchannels(), w.getsampwidth(), w.getframerate()) == (1, 2, 24000)
         frames = w.readframes(4)
@@ -167,6 +167,14 @@ def test_kokoro_fixes_say_names_as_words(line, said):
     from slidecast.tts import KOKORO_FIXES
 
     assert apply_phonetic(line, KOKORO_FIXES) == said
+
+
+def test_kokoro_is_given_one_sentence_at_a_time():
+    import re
+
+    text = 'It shipped. Did it help? Yes! He said "no." Then 2.5x faster…\nNew line: e.g. this too'
+    assert [s for s in re.split(SENTENCES, text) if s] == [
+        "It shipped.", "Did it help?", "Yes!", 'He said "no."', "Then 2.5x faster…", "New line: e.g.", "this too"]
 
 
 def test_mlx_kokoro_applies_the_fixes_after_the_callers_rules(tmp_path):

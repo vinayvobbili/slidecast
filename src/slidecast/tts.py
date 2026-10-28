@@ -195,6 +195,12 @@ def _write_wav(path: Path, chunks, sample_rate: int) -> float:
     return len(pcm) / float(sample_rate)
 
 
+# Where Kokoro's pipeline splits text before phonemizing: lines and sentence ends. It splits long text again at
+# 510 phonemes, but its own count can come out one over and the end gets truncated ("len(ps) == 511 > 510");
+# a sentence at a time never gets near the limit.
+SENTENCES = r"\n+|(?<=[.!?…])\s+|(?<=[.!?…][\"”’])\s+"
+
+
 class MLXKokoroTTS:
     """Kokoro run in-process on Apple Silicon via ``mlx-audio`` — no TTS server.
 
@@ -206,6 +212,9 @@ class MLXKokoroTTS:
 
     ``fixes`` (default :data:`KOKORO_FIXES`) are rules like ``phonetic`` that
     every reel needs, applied after it; pass ``None`` to turn them off.
+
+    ``split_pattern`` (default :data:`SENTENCES`) is where the text is cut
+    before Kokoro phonemizes it.
 
     ``loader`` maps a model id to a loaded model (default ``mlx_audio``'s
     ``load_model``); tests swap in a stub.
@@ -220,6 +229,7 @@ class MLXKokoroTTS:
         phonetic: Optional[Dict[str, str]] = None,
         loader: Optional[Callable[[str], object]] = None,
         fixes: Optional[Dict[str, str]] = KOKORO_FIXES,
+        split_pattern: str = SENTENCES,
     ):
         self.voice = voice
         self.model = model
@@ -227,6 +237,7 @@ class MLXKokoroTTS:
         self.lang_code = lang_code
         self.phonetic = phonetic
         self.fixes = fixes
+        self.split_pattern = split_pattern
         self._loader = loader or _load_mlx_model
         self._model = None
 
@@ -236,7 +247,7 @@ class MLXKokoroTTS:
         chunks, rate = [], 24000
         for result in self._model.generate(
             apply_phonetic(apply_phonetic(text, self.phonetic), self.fixes), voice=self.voice,
-            speed=self.speed, lang_code=self.lang_code,
+            speed=self.speed, lang_code=self.lang_code, split_pattern=self.split_pattern,
         ):
             chunks.append(result.audio)
             rate = result.sample_rate
