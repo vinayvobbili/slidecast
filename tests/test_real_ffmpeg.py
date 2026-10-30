@@ -14,6 +14,7 @@ import pytest
 
 from slidecast import Music, Reel, SilentTTS, probe_duration
 from slidecast.ffmpeg import FFmpegNotFound, find_ffmpeg
+from slidecast.video import _duck_curve
 
 try:
     FFMPEG = find_ffmpeg()
@@ -92,6 +93,15 @@ def _video_md5(media):
 BED = "lowpass=f=200,lowpass=f=200"  # the 100 Hz bed alone
 VOICE = "highpass=f=2500,highpass=f=2500"  # the 3 kHz voice alone
 STING = "highpass=f=400,highpass=f=400,lowpass=f=900,lowpass=f=900"  # the 600 Hz stings
+
+
+def test_a_long_videos_duck_curve_is_one_ffmpeg_will_parse(tmp_path):
+    """One dip per spoken line: a 25-minute drill has well over a hundred, more than ffmpeg nests in a chain."""
+    curve = _duck_curve(Music("bed.mp3"), [(i * 2.0, i * 2.0 + 1.0) for i in range(300)])
+    out = tmp_path / "bed.wav"
+    subprocess.run([FFMPEG, "-v", "error", "-f", "lavfi", "-i", "sine=d=1", "-af", curve, "-y", str(out)],
+                   check=True)
+    assert out.stat().st_size > 0
 
 
 def test_music_bed_ducks_under_the_voice_with_stings_at_each_end(tmp_path):

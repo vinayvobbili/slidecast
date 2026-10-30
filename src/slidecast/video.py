@@ -242,11 +242,13 @@ def _duck_curve(music: Music, spans: List[Span]) -> str:
     the deeper dip, so a short gap only half-swells. Small frames keep the
     ramps smooth, since ``volume`` re-evaluates once per frame.
     """
-    depth = ""
-    for start, end in spans:
-        term = (f"clip((t-{start - DUCK_ATTACK:.3f})/{DUCK_ATTACK:g},0,1)"
-                f"*clip(({end + DUCK_RELEASE:.3f}-t)/{DUCK_RELEASE:g},0,1)")
-        depth = f"max({depth},{term})" if depth else term
+    terms = [f"clip((t-{start - DUCK_ATTACK:.3f})/{DUCK_ATTACK:g},0,1)"
+             f"*clip(({end + DUCK_RELEASE:.3f}-t)/{DUCK_RELEASE:g},0,1)" for start, end in spans]
+    # max() of them all as a balanced tree, not a chain: ffmpeg's expression parser refuses nesting past 100
+    # levels, which a chain of one max() per span passes in a long video (a drill with 100+ spoken lines).
+    while len(terms) > 1:
+        terms = [f"max({a},{b})" for a, b in zip(terms[::2], terms[1::2])] + terms[len(terms) // 2 * 2:]
+    depth = terms[0] if terms else ""
     dip = 1 - 10 ** (-music.duck_db / 20)
     return f"asetnsamples=n=480,volume='{music.volume:g}*(1-{dip:.4f}*{depth})':eval=frame"
 
