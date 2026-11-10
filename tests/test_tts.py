@@ -180,6 +180,18 @@ def test_kokoro_fixes_spell_out_acronyms(line, said):
     assert apply_phonetic(line, KOKORO_FIXES) == said
 
 
+@pytest.mark.parametrize("line, said", [
+    ("Route it. Routes, routed, routing.", "Rowt it. Rowts, rowted, rowting."),
+    ("The router and the routers.", "The rowter and the rowters."),
+    ("ROUTE stays shouted-ish; Router starts a sentence.", "ROUTE stays shouted-ish; Rowter starts a sentence."),
+    ("A subroutine, a routine and en-route text.", "A subroutine, a routine and en-rowt text."),
+])
+def test_kokoro_fixes_say_route_the_american_way(line, said):
+    from slidecast.tts import KOKORO_FIXES
+
+    assert apply_phonetic(line, KOKORO_FIXES) == said
+
+
 def test_kokoro_is_given_one_sentence_at_a_time():
     import re
 

@@ -83,6 +83,11 @@ KOKORO_FIXES: Dict[str, str] = {
     r"\bGCP\b": "G C P",
     r"\bEDR\b": "E D R",
     r"\bIAM\b": "I A M",
+    # "route" the American way (rhymes with "out"), not the British "root"; whole words, so "routine" stays
+    r"\b(?P<r>[Rr])oute(?P<s>s?)\b": r"\g<r>owt\g<s>",
+    r"\b(?P<r>[Rr])outed\b": r"\g<r>owted",
+    r"\b(?P<r>[Rr])outing\b": r"\g<r>owting",
+    r"\b(?P<r>[Rr])outer(?P<s>s?)\b": r"\g<r>owter\g<s>",
 }
 
 
