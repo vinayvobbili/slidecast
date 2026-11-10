@@ -19,8 +19,10 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable, List, Optional, Union
 
+from . import cache as _cache
 from . import sound as _sound
 from . import video as _video
+from .cache import Cache
 from .ffmpeg import find_ffmpeg
 from .models import Clip, Music, Segment, Slide, Sting
 from .render import PlaywrightRenderer, Renderer
@@ -95,7 +97,19 @@ class Reel:
         self.slides.append(clip)
         return clip
 
-    def _segment_duration(self, slide: Slide, audio: Path) -> Optional[float]:
+    def _speak(self, text: str, audio: Path, cache: Optional[Cache]) -> Optional[float]:
+        """Narrate ``text`` into ``audio`` (from the cache when this voice has said it before); return its length."""
+        if cache is None:
+            return self.tts.synthesize(text, audio)
+        key = _cache.digest("narration", _cache.tts_identity(self.tts), text)
+        hit = cache.get_audio(key, audio)
+        if hit:
+            return hit[0]
+        narrated = self.tts.synthesize(text, audio)
+        cache.put_audio(key, audio, narrated)
+        return narrated
+
+    def _segment_duration(self, slide: Slide, audio: Path, cache: Optional[Cache] = None) -> Optional[float]:
         """Narrate ``slide`` into ``audio`` and return the segment's target length.
 
         Returns a concrete duration when it's known (so the segment is padded to
@@ -106,17 +120,17 @@ class Reel:
             SilentTTS(seconds=seconds).synthesize("", audio)
             return seconds
 
-        narrated = self.tts.synthesize(slide.narration, audio)
+        narrated = self._speak(slide.narration, audio, cache)
         if narrated is None:
             # Provider couldn't measure (e.g. MP3) — audio drives the length.
             return None
         return max(narrated + slide.tail_pad, slide.min_duration)
 
-    def _clip_duration(self, clip: Clip, audio: Path, ffmpeg: str) -> tuple:
+    def _clip_duration(self, clip: Clip, audio: Path, ffmpeg: str, cache: Optional[Cache] = None) -> tuple:
         """Narrate ``clip`` into ``audio``; return (segment length, last-frame hold)."""
         length = _video.probe_duration(clip.video, ffmpeg=ffmpeg)
         if clip.narration.strip():
-            spoken = self.tts.synthesize(clip.narration, audio)
+            spoken = self._speak(clip.narration, audio, cache)
             if spoken is None:
                 spoken = _video.probe_duration(audio, ffmpeg=ffmpeg)
             spoken += clip.tail_pad
@@ -167,6 +181,8 @@ class Reel:
         end_hold: float = 0.0,
         music_volume: Optional[float] = None,
         music_fade: Optional[float] = None,
+        cache=None,
+        on_cached: Optional[ProgressHook] = None,
     ) -> Path:
         """Render the whole reel to ``out_path`` (an .mp4). Returns the path.
 
@@ -181,6 +197,11 @@ class Reel:
 
         ``music`` overrides :attr:`music` for this render; ``music_volume`` /
         ``music_fade`` override the bed's volume and both its fades.
+
+        Narration and segments are kept in a cache (see :mod:`slidecast.cache`), so a rebuild redoes only the
+        slides that changed. ``cache`` is a directory for it, False to turn it off, or None for the default
+        (``SLIDECAST_CACHE``, else ``~/.cache/slidecast``). ``on_cached`` is called like ``on_progress`` for each
+        segment taken from the cache instead of built.
         """
         if not self.slides:
             raise ValueError("Reel has no slides or clips")
@@ -196,6 +217,7 @@ class Reel:
         if any(x is not None and x.composed for x in (bed, intro, outro)):
             _sound.require_numpy()  # fail now, not after every slide is built
 
+        cache = Cache.of(cache)
         keep_work = workdir is not None
         work = Path(workdir) if workdir else Path(tempfile.mkdtemp(prefix="slidecast_"))
         work.mkdir(parents=True, exist_ok=True)
@@ -230,15 +252,24 @@ class Reel:
                     # The first segment holds silent through the lead-in (the intro).
                     delay = lead_in if i == 1 else 0.0
                     if isinstance(slide, Clip):
-                        duration, hold = self._clip_duration(slide, audio, ffmpeg)
+                        duration, hold = self._clip_duration(slide, audio, ffmpeg, cache)
                         whole = _on_frames(duration + delay, self.fps)
                         duration, hold = whole - delay, hold + whole - delay - duration
-                        _video.build_clip_segment(
-                            slide.video, audio, seg,
-                            width=self.width, height=self.height, fps=self.fps,
-                            duration=duration + delay, hold=hold, delay=delay,
-                            ffmpeg=ffmpeg,
-                        )
+                        key = cache and _cache.digest(
+                            "clip", _cache.file_digest(Path(slide.video)), _cache.file_digest(audio),
+                            self.width, self.height, self.fps, duration + delay, hold, delay, _cache.ENCODE)
+                        if key and cache.get_segment(key, seg):
+                            if on_cached:
+                                on_cached(i, total, slide)
+                        else:
+                            _video.build_clip_segment(
+                                slide.video, audio, seg,
+                                width=self.width, height=self.height, fps=self.fps,
+                                duration=duration + delay, hold=hold, delay=delay,
+                                ffmpeg=ffmpeg,
+                            )
+                            if key:
+                                cache.put_segment(key, seg)
                         segments.append(seg)
                         if plan_duck:
                             clock = self._note_speech(speech, slide, audio, seg, clock,
@@ -246,14 +277,23 @@ class Reel:
                         continue
                     png = work / f"s{i:03d}.png"
                     r.screenshot(slide.html, png, width=self.width, height=self.height)
-                    duration = self._segment_duration(slide, audio)
+                    duration = self._segment_duration(slide, audio, cache)
                     if duration is not None:
                         duration = _on_frames(duration + delay, self.fps)
-                    _video.build_segment(
-                        png, audio, seg,
-                        width=self.width, height=self.height, fps=self.fps,
-                        duration=duration, delay=delay, ffmpeg=ffmpeg,
-                    )
+                    key = cache and _cache.digest(
+                        "slide", _cache.file_digest(png), _cache.file_digest(audio),
+                        self.width, self.height, self.fps, duration, delay, _cache.ENCODE)
+                    if key and cache.get_segment(key, seg):
+                        if on_cached:
+                            on_cached(i, total, slide)
+                    else:
+                        _video.build_segment(
+                            png, audio, seg,
+                            width=self.width, height=self.height, fps=self.fps,
+                            duration=duration, delay=delay, ffmpeg=ffmpeg,
+                        )
+                        if key:
+                            cache.put_segment(key, seg)
                     segments.append(seg)
                     if plan_duck:
                         clock = self._note_speech(speech, slide, audio, seg, clock,
@@ -285,6 +325,8 @@ class Reel:
                 _video.poster(out_path, out_path.with_name(out_path.stem + "_poster.jpg"),
                               at=fade_in + 0.2 if fade_in > 0 else 0.0, ffmpeg=ffmpeg)
         finally:
+            if cache is not None:
+                cache.prune()
             if not keep_work:
                 shutil.rmtree(work, ignore_errors=True)
         return out_path

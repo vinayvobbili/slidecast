@@ -72,6 +72,48 @@ class ToneTTS:
         return probe_duration(out_path, ffmpeg=FFMPEG)
 
 
+def test_rebuild_after_one_edit_reuses_the_cache(tmp_path, monkeypatch, capsys):
+    """Five slides, then one narration changed: the cached segments concat into a playable reel, and only the
+    edited slide is spoken and encoded again. Run with ``-s`` to see the timings."""
+    import time
+
+    from slidecast import video
+
+    png = _make(["-f", "lavfi", "-i", "color=c=navy:s=640x400", "-frames:v", "1"], tmp_path / "s.png")
+    built = []
+    real_build = video.build_segment
+    monkeypatch.setattr(video, "build_segment", lambda *a, **k: built.append(a[2]) or real_build(*a, **k))
+
+    def render(lines):
+        reel = Reel(width=640, height=400, fps=25, tts=PitchTTS(), renderer=PngRenderer(png))
+        for n, line in enumerate(lines):
+            reel.add(f"<h1>{n}</h1>", line)
+        start = time.perf_counter()
+        out = reel.render(tmp_path / "out.mp4", ffmpeg=FFMPEG, cache=tmp_path / "cache")
+        return out, time.perf_counter() - start
+
+    class PitchTTS(ToneTTS):
+        """Three seconds of a tone whose pitch depends on the line, so a changed line is a changed waveform."""
+
+        def synthesize(self, text, out_path):
+            _make(["-f", "lavfi", "-i", f"sine=f={500 + sum(map(ord, text))}:d=3:sample_rate=24000", "-ac", "1"],
+                  out_path)
+            return 3.0
+
+    lines = ["one", "two", "three", "four", "five"]
+    _, cold = render(lines)
+    assert len(built) == 5
+    built.clear()
+    out, warm = render(lines[:2] + ["THREE"] + lines[3:])
+    assert len(built) == 1
+    assert probe_duration(out, ffmpeg=FFMPEG) == pytest.approx(15.0, abs=0.3)
+    decoded = subprocess.run([FFMPEG, "-v", "error", "-i", str(out), "-f", "null", "-"],
+                             capture_output=True, text=True)
+    assert decoded.returncode == 0 and not decoded.stderr.strip()
+    with capsys.disabled():
+        print(f"\ncold render {cold:.2f}s, one slide changed {warm:.2f}s")
+
+
 def _level(media, start, end, band):
     """Mean volume (dB) of ``media`` between ``start`` and ``end`` s, through ``band``."""
     res = subprocess.run(

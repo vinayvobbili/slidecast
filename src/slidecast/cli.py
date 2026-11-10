@@ -147,7 +147,11 @@ def main(argv=None) -> int:
     r.add_argument("--poster", action="store_true", help="also write <stem>_poster.jpg")
     r.add_argument("--keep-work", type=Path, default=None,
                    help="keep intermediate frames/audio in this directory")
-    c = sub.add_parser("compose", help="synthesize a music bed and intro/outro stings")
+    r.add_argument("--cache", type=Path, default=None, metavar="DIR",
+                   help="reuse narration and segments from this directory (default: $SLIDECAST_CACHE, "
+                        "else ~/.cache/slidecast)")
+    r.add_argument("--no-cache", action="store_true", help="rebuild everything, and keep nothing")
+    c =sub.add_parser("compose", help="synthesize a music bed and intro/outro stings")
     c.add_argument("-o", "--out", type=Path, required=True, metavar="DIR",
                    help="directory for music_bed.wav, intro_sting.wav, outro_sting.wav")
     c.add_argument("--length", type=float, default=95.0, metavar="SECONDS",
@@ -199,8 +203,12 @@ def main(argv=None) -> int:
             head = slide.narration[:48].replace("\n", " ") or "(silent)"
             print(f"  [{i}/{total}] {head}", file=sys.stderr)
 
-        out = reel.render(args.out, make_poster=args.poster,
-                          workdir=args.keep_work, on_progress=progress)
+        def cached(i, total, slide):
+            print(f"  [{i}/{total}] (cached)", file=sys.stderr)
+
+        out = reel.render(args.out, make_poster=args.poster, workdir=args.keep_work,
+                          on_progress=progress, on_cached=cached,
+                          cache=False if args.no_cache else args.cache)
         size_mb = out.stat().st_size / 1e6
         print(f"✓ wrote {out} ({size_mb:.1f} MB) from {n} slides")
     return 0

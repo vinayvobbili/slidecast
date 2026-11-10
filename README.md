@@ -141,6 +141,18 @@ slides:
     min_duration: 3
 ```
 
+## Rebuilding fast
+
+Narration and built segments are cached, so after editing two slides of a long reel only those two are spoken
+and encoded again. Entries are keyed on the text, voice and settings, and on the slide's screenshot, so a change
+to anything that shows or sounds different is picked up.
+
+The cache lives in `~/.cache/slidecast` (`$XDG_CACHE_HOME/slidecast` if set), or wherever `SLIDECAST_CACHE`
+points, and is pruned to 5 GB, least recently used first. To turn it off, set `SLIDECAST_CACHE=off`, pass
+`--no-cache` to `slidecast render`, or call `reel.render(out, cache=False)`. `--cache DIR` / `cache=DIR` use
+another directory. A custom TTS provider is keyed on its public attributes; give it a `cache_key` if its output
+depends on anything else.
+
 ## The swappable pieces
 
 **Text-to-speech** — anything with `synthesize(text, path) -> seconds | None`:
