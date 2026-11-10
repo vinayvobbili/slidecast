@@ -90,6 +90,43 @@ KOKORO_FIXES: Dict[str, str] = {
     r"\b(?P<r>[Rr])outer(?P<s>s?)\b": r"\g<r>owter\g<s>",
 }
 
+# "read" is "reed" now and "red" in the past, and Kokoro's tagger can't tell them apart. The rules below pick the
+# sound from the words around it and hand it to misaki as a phoneme override, which keeps the written word. Order
+# matters: an author's {read:past} first, then past cues, then present cues; a word already rewritten (it then sits
+# in "[...]") is skipped by the later rules.
+#   past:    after have/has/had/'ve/'d/was/were/been/is/are/be/being/get/got/already/just/never/well/widely/
+#            recently/once, or with yesterday, ago, earlier or "last week"-style words within four words after it
+#   present: after to/will/can/do/please/I/you/we/they and so on, and an imperative at the start of a sentence
+#   neither: left to Kokoro's own guess
+_READ_FORMS = {  # spelling regex -> (past phonemes, present phonemes)
+    r"read": ("ɹˈɛd", "ɹˈid"),
+    r"re-?read": ("ɹˌiɹˈɛd", "ɹˌiɹˈid"),
+    r"proof-?read": ("pɹˈufɹˌɛd", "pɹˈufɹˌid"),
+    r"mis-?read": ("mɪsɹˈɛd", "mɪsɹˈid"),
+}
+_READ_PAST_CUES = (r"(?:\b(?:have|has|had|was|were|been|is|are|be|being|get|got|already|just|never|well|widely|"
+                   r"recently|once)|['’](?:ve|d))\s+")
+_READ_PAST_TIME = (r"(?:yesterday|ago|last\s+(?:night|week|weekend|month|quarter|year|decade|time)|"
+                   r"earlier(?=\s+(?:today|this|that|on|in)\b|\s*[.,;:!?]|\s*$))")
+_READ_PRESENT_CUES = (r"\b(?:to|will|would|can|cannot|could|should|may|might|must|shall|do|does|did|please|"
+                      r"(?:don|doesn|didn|won|can)['’]t|let['’]s|i|you|we|they)\s+")
+
+
+def _read_rules() -> Dict[str, str]:
+    override, past, present = {}, {}, {}
+    for form, (red, reed) in _READ_FORMS.items():
+        word = rf"(?P<w>{form})\b"
+        for tense, ph in (("past", red), ("present", reed)):
+            override[rf"(?i)\{{(?P<w>{form}):{tense}\}}"] = rf"[\g<w>](/{ph}/)"
+        past[rf"(?i)(?P<pre>{_READ_PAST_CUES}){word}"] = rf"\g<pre>[\g<w>](/{red}/)"
+        past[rf"(?i)(?<=[\w'’]\s)\b{word}(?=(?:\s+[\w'’-]+){{0,4}}?\s+{_READ_PAST_TIME})"] = rf"[\g<w>](/{red}/)"
+        present[rf"(?i)(?P<pre>{_READ_PRESENT_CUES}){word}"] = rf"\g<pre>[\g<w>](/{reed}/)"
+        present[rf"(?im)(?:^|(?<=[.!?]\s)){word}"] = rf"[\g<w>](/{reed}/)"
+    return {**override, **past, **present}
+
+
+KOKORO_FIXES.update(_read_rules())
+
 
 class SilentTTS:
     """Emit a silent WAV of a fixed length. Pure stdlib, fully deterministic."""

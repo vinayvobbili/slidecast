@@ -177,6 +177,13 @@ depends on anything else.
 Pass `phonetic={r"\bSOC\b": "sock"}` to rewrite how tricky tokens are spoken
 without changing the on-screen text.
 
+Kokoro can't tell "read" (reed) from "read" (red), so slidecast picks from the words around it: red after
+have/has/had/'ve/'d/was/were/been/is/are/be/being/get/got/already/just/never/well/widely/recently/once, or
+with yesterday/ago/earlier/"last week" a few words after it (also re-read, proofread, misread); reed after
+to/will/can/do/I/you/we/they and for an imperative like "Read them out loud". To force a reading, write
+`{read:past}` or `{read:present}` in the narration (`{Read:past}`, `{re-read:present}`, `{proofread:past}` and
+`{misread:past}` work too); the Kokoro engine turns it into the right sound and keeps the word.
+
 **Renderer** — a context manager exposing `screenshot(html, path, *, width, height)`:
 
 - `PlaywrightRenderer` — headless Chromium, launched once per reel (default).

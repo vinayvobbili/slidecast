@@ -192,6 +192,56 @@ def test_kokoro_fixes_say_route_the_american_way(line, said):
     assert apply_phonetic(line, KOKORO_FIXES) == said
 
 
+RED, REED = "/ɹˈɛd/", "/ɹˈid/"
+
+
+@pytest.mark.parametrize("line, said", [
+    ("We have read the memo.", f"We have [read]({RED}) the memo."),
+    ("She's already read it, and he'd read it too.", f"She's already [read]({RED}) it, and he'd [read]({RED}) it too."),
+    ("The log is read once a day.", f"The log is [read]({RED}) once a day."),
+    ("A well Read book.", f"A well [Read]({RED}) book."),
+    ("I read it yesterday.", f"I [read]({RED}) it yesterday."),
+    ("They read the notes three days ago.", f"They [read]({RED}) the notes three days ago."),
+    ("We read that last week.", f"We [read]({RED}) that last week."),
+    ("I read the draft earlier.", f"I [read]({RED}) the draft earlier."),
+    ("I have re-read it, but had misread one line.",
+     "I have [re-read](/ɹˌiɹˈɛd/) it, but had [misread](/mɪsɹˈɛd/) one line."),
+    ("It was misread, and he had proofread it.",
+     "It was [misread](/mɪsɹˈɛd/), and he had [proofread](/pɹˈufɹˌɛd/) it."),
+])
+def test_kokoro_fixes_say_read_in_the_past(line, said):
+    from slidecast.tts import KOKORO_FIXES
+
+    assert apply_phonetic(line, KOKORO_FIXES) == said
+
+
+@pytest.mark.parametrize("line, said", [
+    ("Read them out loud.", f"[Read]({REED}) them out loud."),
+    ("Stop here. Read the last page.", f"Stop here. [Read]({REED}) the last page."),
+    ("You need to read it, and you will read more.", f"You need to [read]({REED}) it, and you will [read]({REED}) more."),
+    ("Users can read the log.", f"Users can [read]({REED}) the log."),
+    ("I read every morning.", f"I [read]({REED}) every morning."),
+    ("Please re-read the notes.", "Please [re-read](/ɹˌiɹˈid/) the notes."),
+    ("Proofread it before you misread it.", "[Proofread](/pɹˈufɹˌid/) it before you [misread](/mɪsɹˈid/) it."),
+    ("The reader reads and spreads.", "The reader reads and spreads."),
+])
+def test_kokoro_fixes_say_read_in_the_present(line, said):
+    from slidecast.tts import KOKORO_FIXES
+
+    assert apply_phonetic(line, KOKORO_FIXES) == said
+
+
+@pytest.mark.parametrize("line, said", [
+    ("Then {read:past} it. And {Read:present} it.", f"Then [read]({RED}) it. And [Read]({REED}) it."),
+    ("We {re-read:past} and {proofread:present} it.", "We [re-read](/ɹˌiɹˈɛd/) and [proofread](/pɹˈufɹˌid/) it."),
+    ("The bot's {read:past} is final.", f"The bot's [read]({RED}) is final."),
+])
+def test_kokoro_fixes_take_an_authors_read_override(line, said):
+    from slidecast.tts import KOKORO_FIXES
+
+    assert apply_phonetic(line, KOKORO_FIXES) == said
+
+
 def test_kokoro_is_given_one_sentence_at_a_time():
     import re
 
