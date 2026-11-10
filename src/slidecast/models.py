@@ -131,7 +131,7 @@ class Sting:
     Attributes:
         file: Path to the sting (any format ffmpeg reads), or "compose" to have
             a :class:`Reel` synthesize the stock intro or outro (needs numpy).
-        volume: Linear gain. None (the default) means 0.75 for an intro and 0.7
+        volume: Gain, a plain multiplier. None (the default) means 0.75 for an intro and 0.7
             for an outro, clearly above the bed.
     """
 
