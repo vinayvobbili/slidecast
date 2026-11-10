@@ -153,7 +153,7 @@ class Reel:
         """Synthesize a bed that outlasts the reel, so its own closing fade never loops in."""
         length = _video.probe_duration(raw, ffmpeg=ffmpeg) + end_hold + 4.0
         path = work / "music_bed.wav"
-        _sound.write_wav(path, _sound.music_bed(length))
+        _sound.write_long_bed(path, length)
         return replace(bed, file=path)
 
     @staticmethod

@@ -218,6 +218,52 @@ def write_wav(path, samples, peak: float = 0.89) -> float:
     return len(x) / _SR
 
 
+# A bed longer than this is built from a short synthesized one, looped: music_bed() holds several float64
+# arrays and an FFT as long as the bed, which for a drill of nearly an hour is over 10 GB.
+LOOP_ABOVE = 150.0
+_LOOP_CYCLES = 8  # the synthesized source, in 4-bar chord cycles
+_SEAM = 1.0  # seconds crossfaded where one piece joins the next
+
+
+def write_long_bed(path, length: float, bpm: float = 84, seed: int = 7, peak: float = 0.89) -> float:
+    """Write a bed at least ``length`` seconds long as a WAV; return its length.
+
+    Up to :data:`LOOP_ABOVE` this is :func:`music_bed` through :func:`write_wav`. Beyond it, the chord cycles in
+    the middle of a short bed repeat (crossfaded where they join) between its own fade-in and fade-out, and the
+    WAV is written in pieces, so memory stays the same however long the bed.
+    """
+    if length <= LOOP_ABOVE:
+        return write_wav(path, music_bed(length, bpm=bpm, seed=seed), peak=peak)
+    require_numpy()
+    cycle = int(round(16 * 60 / bpm * _SR))
+    src = music_bed(_LOOP_CYCLES * cycle / _SR, bpm=bpm, seed=seed)
+    head, body, tail = src[: 2 * cycle], src[2 * cycle: 5 * cycle], src[5 * cycle:]
+    scale = peak / max(float(np.max(np.abs(src))), 1e-12)
+    seam = int(_SEAM * _SR)
+    up = np.linspace(0, 1, seam)[:, None]
+    wanted = int(length * _SR)
+    repeats = max(1, int(np.ceil((wanted - len(head) - len(tail)) / (len(body) - seam))))
+    pieces = [head] + [body] * repeats + [tail]
+    written = 0
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(2)
+        w.setsampwidth(2)
+        w.setframerate(_SR)
+
+        def put(x):
+            nonlocal written
+            w.writeframes((np.clip(x * scale, -1, 1) * 32767).astype("<i2").tobytes())
+            written += len(x)
+
+        held = pieces[0]
+        for nxt in pieces[1:]:
+            put(held[:-seam])
+            put(held[-seam:] * (1 - up) + nxt[:seam] * up)
+            held = nxt[seam:]
+        put(held)
+    return written / _SR
+
+
 def compose(out_dir, length: float = 95.0, bpm: float = 84, seed: int = 7) -> Dict[str, Path]:
     """Write music_bed.wav, intro_sting.wav and outro_sting.wav into ``out_dir``.
 

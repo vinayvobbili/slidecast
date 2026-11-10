@@ -71,6 +71,47 @@ def test_compose_writes_the_three_files(tmp_path):
     assert wav_duration(paths["outro_sting"]) == pytest.approx(5.0)
 
 
+def _read_bed(path):
+    with wave.open(str(path)) as w:
+        assert w.getnchannels() == 2 and w.getframerate() == sound.SAMPLE_RATE
+        return np.frombuffer(w.readframes(w.getnframes()), dtype="<i2").reshape(-1, 2) / 32767
+
+
+def test_a_short_bed_is_written_whole(tmp_path):
+    seconds = sound.write_long_bed(tmp_path / "bed.wav", 3.0)
+    assert seconds == pytest.approx(3.0)
+    assert len(_read_bed(tmp_path / "bed.wav")) == 3 * sound.SAMPLE_RATE
+
+
+def test_a_long_bed_loops_and_still_fades_at_both_ends(tmp_path, monkeypatch):
+    monkeypatch.setattr(sound, "LOOP_ABOVE", 10.0)
+    seconds = sound.write_long_bed(tmp_path / "bed.wav", 200.0, peak=0.8)
+    assert 200.0 <= seconds < 200.0 + 40.0
+    bed = _read_bed(tmp_path / "bed.wav")
+    assert len(bed) / sound.SAMPLE_RATE == pytest.approx(seconds)
+    assert np.abs(bed).max() == pytest.approx(0.8, abs=0.01)
+    assert np.abs(bed[0]).max() < 1e-3 and np.abs(bed[-1]).max() < 1e-3
+    middle = bed[100 * sound.SAMPLE_RATE: 101 * sound.SAMPLE_RATE]
+    assert np.abs(middle).max() > 0.1
+    # the seams between repeats are crossfaded: no click beyond the kick drum's own attack
+    assert np.abs(np.diff(bed, axis=0)).max() < 0.3
+
+
+def test_a_long_bed_needs_the_same_memory_however_long(tmp_path, monkeypatch):
+    import tracemalloc
+
+    monkeypatch.setattr(sound, "LOOP_ABOVE", 10.0)
+
+    def peak(length):
+        tracemalloc.start()
+        sound.write_long_bed(tmp_path / "bed.wav", length)
+        _, high = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        return high
+
+    assert peak(600.0) < 1.2 * peak(150.0)
+
+
 def test_missing_numpy_says_which_extra_to_install(monkeypatch):
     monkeypatch.setattr(sound, "np", None)
     with pytest.raises(ImportError, match=r"pip install 'slidecast\[compose\]'"):
