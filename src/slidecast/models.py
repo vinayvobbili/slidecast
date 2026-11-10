@@ -84,7 +84,7 @@ class Music:
     Attributes:
         file: Path to the track (any format ffmpeg reads), or "compose" to have
             a :class:`Reel` synthesize a bed as long as the reel (needs numpy).
-        volume: Linear gain on the bed in the pauses; 0.22 is about -13 dB.
+        volume: Gain (a plain multiplier) on the bed in the pauses; 0.22 is about -13 dB.
         fade_in / fade_out: Seconds to fade the bed in at the start and out at
             the end. 0 skips the fade.
         duck: Pull the bed down while the voice is talking.
