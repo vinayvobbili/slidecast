@@ -78,6 +78,11 @@ KOKORO_FIXES: Dict[str, str] = {
     # Names said as words, which Kokoro would spell out letter by letter
     r"(?i)\bJSON\b": "Jason",
     r"\bPyPI\b": "pie pee eye",
+    # Acronyms said letter by letter, which Kokoro would run together as one word ("aawss")
+    r"\bAWS\b": "A W S",
+    r"\bGCP\b": "G C P",
+    r"\bEDR\b": "E D R",
+    r"\bIAM\b": "I A M",
 }
 
 

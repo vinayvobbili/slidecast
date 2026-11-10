@@ -169,6 +169,17 @@ def test_kokoro_fixes_say_names_as_words(line, said):
     assert apply_phonetic(line, KOKORO_FIXES) == said
 
 
+@pytest.mark.parametrize("line, said", [
+    ("We run on AWS and GCP.", "We run on A W S and G C P."),
+    ("EDR alerts and IAM roles.", "E D R alerts and I A M roles."),
+    ("AWSome and the word lawsuit stay as they are.", "AWSome and the word lawsuit stay as they are."),
+])
+def test_kokoro_fixes_spell_out_acronyms(line, said):
+    from slidecast.tts import KOKORO_FIXES
+
+    assert apply_phonetic(line, KOKORO_FIXES) == said
+
+
 def test_kokoro_is_given_one_sentence_at_a_time():
     import re
 
