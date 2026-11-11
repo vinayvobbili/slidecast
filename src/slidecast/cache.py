@@ -3,7 +3,8 @@
 Speaking a line and encoding a segment are the slow steps of a render. Each result is stored under a hash of
 everything that can change it, so an edit to two slides in a long reel redoes two slides and reuses the rest.
 Entries are written to a temporary name and renamed into place, so an interrupted render never leaves a half-written
-entry, and the least recently used ones are pruned once the cache grows past :data:`MAX_BYTES`.
+entry, and the least recently used ones are pruned once the cache grows past its cap: :data:`MAX_BYTES` (5 GB) unless
+``$SLIDECAST_CACHE_MAX`` says otherwise, as a byte count or a number with a ``G`` or ``M`` suffix (``12G``, ``800M``).
 
 The cache lives in ``$SLIDECAST_CACHE``, else ``$XDG_CACHE_HOME/slidecast``, else ``~/.cache/slidecast``. Set
 ``SLIDECAST_CACHE`` to ``off`` (or pass ``cache=False`` to :meth:`Reel.render`) to turn it off.
@@ -14,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import tempfile
 import time
@@ -23,7 +25,7 @@ from typing import Any, Optional, Union
 # Bump to retire every entry when a change here or in video.py alters what a key doesn't see.
 VERSION = 1
 
-# Pruned down to this, least recently used first, at the end of a render.
+# Pruned down to this, least recently used first, at the end of a render. ``$SLIDECAST_CACHE_MAX`` overrides it.
 MAX_BYTES = 5 * 1024 ** 3
 
 # What the segment builders encode with. A change to video.py's settings goes here, so old segments aren't reused.
@@ -31,6 +33,8 @@ ENCODE = "libx264/stillimage/yuv420p;pcm_s16le/48000/2;aac/192k"
 
 _OFF = {"", "0", "off", "false", "no", "none"}
 _STALE_TMP = 3600  # seconds before an abandoned temporary entry is swept
+_SIZE = re.compile(r"^(\d+)([GgMm]?)$")
+_UNITS = {"": 1, "M": 1024 ** 2, "G": 1024 ** 3}
 
 
 def default_dir(env=None) -> Optional[Path]:
@@ -41,6 +45,24 @@ def default_dir(env=None) -> Optional[Path]:
         return None if value.lower() in _OFF else Path(value).expanduser()
     base = env.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")
     return Path(base) / "slidecast"
+
+
+def parse_size(text: str) -> int:
+    """A size in bytes from ``12G``, ``800M`` or a plain byte count; ValueError for anything else, or zero."""
+    m = _SIZE.match(text.strip())
+    if not m or int(m.group(1)) == 0:
+        raise ValueError(
+            f"SLIDECAST_CACHE_MAX={text!r} is not a cache size: use a byte count, or a whole number "
+            "with a G or M suffix, such as 12G or 800M"
+        )
+    return int(m.group(1)) * _UNITS[m.group(2).upper()]
+
+
+def max_bytes_from_env(env=None) -> int:
+    """The cap from ``SLIDECAST_CACHE_MAX``, else :data:`MAX_BYTES`; ValueError when the variable is bad."""
+    env = os.environ if env is None else env
+    value = env.get("SLIDECAST_CACHE_MAX", "").strip()
+    return parse_size(value) if value else MAX_BYTES
 
 
 def digest(*parts: Any) -> str:
@@ -75,9 +97,9 @@ def tts_identity(tts) -> str:
 class Cache:
     """Narration audio (a directory per line) and built segments (a file each) under one root."""
 
-    def __init__(self, root: Union[str, Path], max_bytes: int = MAX_BYTES):
+    def __init__(self, root: Union[str, Path], max_bytes: Optional[int] = None):
         self.root = Path(root)
-        self.max_bytes = max_bytes
+        self.max_bytes = max_bytes_from_env() if max_bytes is None else max_bytes
 
     @classmethod
     def of(cls, setting: Union[str, Path, bool, None, "Cache"]) -> Optional["Cache"]:

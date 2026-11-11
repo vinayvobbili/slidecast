@@ -232,3 +232,52 @@ def test_tts_identity_sees_public_settings_and_honors_cache_key():
     assert cache_mod.tts_identity(SilentTTS(seconds=1, sample_rate=8000)) != cache_mod.tts_identity(SilentTTS(seconds=1))
     b.cache_key = "model-9"
     assert cache_mod.tts_identity(b).endswith(":model-9")
+
+
+def test_parse_size_reads_gigabytes_megabytes_and_plain_counts():
+    assert cache_mod.parse_size("12G") == 12 * 1024 ** 3
+    assert cache_mod.parse_size("800M") == 800 * 1024 ** 2
+    assert cache_mod.parse_size("4096") == 4096
+    assert cache_mod.parse_size(" 3g ") == 3 * 1024 ** 3
+
+
+@pytest.mark.parametrize("text", ["12GB", "1.5G", "abc", "-5M", "0G", "0", "G"])
+def test_parse_size_rejects_anything_else(text):
+    with pytest.raises(ValueError, match="SLIDECAST_CACHE_MAX"):
+        cache_mod.parse_size(text)
+
+
+def test_cap_defaults_to_five_gigabytes_when_unset_or_empty(monkeypatch):
+    monkeypatch.delenv("SLIDECAST_CACHE_MAX", raising=False)
+    assert cache_mod.max_bytes_from_env() == cache_mod.MAX_BYTES == 5 * 1024 ** 3
+    assert cache_mod.max_bytes_from_env({"SLIDECAST_CACHE_MAX": "  "}) == cache_mod.MAX_BYTES
+
+
+def test_bad_cap_raises_when_the_cache_is_built(tmp_path, monkeypatch):
+    monkeypatch.setenv("SLIDECAST_CACHE_MAX", "twelve")
+    with pytest.raises(ValueError, match="SLIDECAST_CACHE_MAX='twelve'"):
+        Cache(tmp_path)
+    with pytest.raises(ValueError):
+        Cache.of(tmp_path)
+
+
+def test_explicit_max_bytes_wins_over_the_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("SLIDECAST_CACHE_MAX", "not-a-size")
+    assert Cache(tmp_path, max_bytes=99).max_bytes == 99
+
+
+def test_prune_honours_the_env_cap(tmp_path, monkeypatch):
+    monkeypatch.setenv("SLIDECAST_CACHE_MAX", "250")
+    cache = Cache(tmp_path)
+    assert cache.max_bytes == 250
+    for n, name in enumerate(["old", "mid", "new"]):
+        src = tmp_path / f"{name}.mkv"
+        src.write_bytes(b"x" * 100)
+        cache.put_segment(name, src)
+        stamp = time.time() - 1000 + n * 100
+        os.utime(tmp_path / "segment" / f"{name}.mkv", (stamp, stamp))
+    assert cache.prune() == 1
+    assert sorted(p.name for p in (tmp_path / "segment").iterdir()) == ["mid.mkv", "new.mkv"]
+
+    monkeypatch.setenv("SLIDECAST_CACHE_MAX", "1G")
+    assert Cache(tmp_path).prune() == 0
