@@ -261,6 +261,28 @@ def test_kokoro_fixes_take_an_authors_read_override(line, said):
     assert apply_phonetic(line, KOKORO_FIXES) == said
 
 
+def test_pronunciation_summary_counts_each_word_a_rule_gave_a_sound():
+    from slidecast.tts import KOKORO_FIXES, pronunciation_summary
+
+    texts = ["Your resume is read by a bot. Upload the resume and resumes.", "We went live and it was read."]
+    assert pronunciation_summary(texts, {r"\bbot\b": "robot"}, KOKORO_FIXES) == (
+        "pronunciation: read→past ×2, resume→noun ×2, live→adjective ×1, resumes→noun ×1")
+
+
+def test_pronunciation_summary_names_the_verb_and_an_authors_override():
+    from slidecast.tts import KOKORO_FIXES, pronunciation_summary
+
+    assert pronunciation_summary(["We will resume the {read:present} job."], KOKORO_FIXES) == (
+        "pronunciation: read→present ×1, resume→verb ×1")
+
+
+def test_pronunciation_summary_is_empty_when_no_rule_fired():
+    from slidecast.tts import KOKORO_FIXES, pronunciation_summary
+
+    assert pronunciation_summary(["Nothing tricky here.", ""], None, KOKORO_FIXES) == ""
+    assert pronunciation_summary([], KOKORO_FIXES) == ""
+
+
 def test_kokoro_is_given_one_sentence_at_a_time():
     import re
 

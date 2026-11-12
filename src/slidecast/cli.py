@@ -42,7 +42,7 @@ from . import sound
 from .models import COMPOSE, Music, Sting
 from .reel import Reel
 from .render import ChromeBinaryRenderer
-from .tts import GTTSTTS, KokoroTTS, MacSayTTS, MLXKokoroTTS, SilentTTS, wav_duration
+from .tts import GTTSTTS, KokoroTTS, MacSayTTS, MLXKokoroTTS, SilentTTS, pronunciation_summary, wav_duration
 
 
 def _load_spec(path: Path) -> Dict[str, Any]:
@@ -198,6 +198,11 @@ def main(argv=None) -> int:
         spec = _load_spec(args.spec)
         reel = _build_reel(spec, args.spec.resolve().parent)
         n = len(reel.slides)
+        # Which words the pronunciation rules rewrote, so a wrong guess shows before the video ships.
+        said = pronunciation_summary((s.narration for s in reel.slides),
+                                     getattr(reel.tts, "phonetic", None), getattr(reel.tts, "fixes", None))
+        if said:
+            print(said, file=sys.stderr)
 
         def progress(i, total, slide):
             head = slide.narration[:48].replace("\n", " ") or "(silent)"

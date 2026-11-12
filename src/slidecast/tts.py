@@ -32,7 +32,7 @@ import struct
 import wave
 from array import array
 from pathlib import Path
-from typing import Callable, Dict, Optional, Protocol, runtime_checkable
+from typing import Callable, Dict, Iterable, Optional, Protocol, runtime_checkable
 
 
 @runtime_checkable
@@ -142,6 +142,39 @@ KOKORO_FIXES.update({
     r"(?i)(?<![\[\w])(?P<w>r[eé]sum[eé])\b": r"[\g<w>](/ɹˈɛzəmˌA/)",
     r"(?i)(?<![\[\w])(?P<w>r[eé]sum[eé]s)\b": r"[\g<w>](/ɹˈɛzəmˌAz/)",
 })
+
+
+# What each phoneme override above is called in the summary; one not listed shows as its phonemes.
+_SOUND_NAMES = {"ɹˈɛzəmˌA": "noun", "ɹˈɛzəmˌAz": "noun", "ɹəzˈum": "verb", "ɹəzˈumz": "verb", "lˈIv": "adjective",
+                "ɹˈɛd": "past", "ɹˌiɹˈɛd": "past", "pɹˈufɹˌɛd": "past", "mɪsɹˈɛd": "past",
+                "ɹˈid": "present", "ɹˌiɹˈid": "present", "pɹˈufɹˌid": "present", "mɪsɹˈid": "present"}
+_OVERRIDE = re.compile(r"\[([^\]]+)\]\(/([^/)]+)/\)")
+
+
+def pronunciation_summary(texts: Iterable[str], *rule_sets: Optional[Dict[str, str]]) -> str:
+    """One line naming each word a rule gave a sound to, and which, with counts; "" when no rule did.
+
+    Runs the rules over ``texts`` the way :func:`apply_phonetic` does and counts the ``[word](/phonemes/)``
+    overrides they write, e.g. ``"pronunciation: resume→noun ×3, read→past ×1"``. It makes a wrong guess
+    visible before a video ships. Pass the rule sets in the order the voice applies them.
+    """
+    found: Dict[str, int] = {}
+
+    def count(m, repl):
+        spoken = m.expand(repl)
+        if not _OVERRIDE.search(m.group(0)):  # a word already rewritten was counted when it was
+            for word, ph in _OVERRIDE.findall(spoken):
+                label = f"{word.lower()}→{_SOUND_NAMES.get(ph, ph)}"
+                found[label] = found.get(label, 0) + 1
+        return spoken
+
+    for text in texts:
+        for rules in rule_sets:
+            for pattern, repl in (rules or {}).items():
+                text = re.sub(pattern, lambda m, repl=repl: count(m, repl), text)
+    if not found:
+        return ""
+    return "pronunciation: " + ", ".join(f"{label} ×{n}" for label, n in sorted(found.items(), key=lambda kv: (-kv[1], kv[0])))
 
 
 class SilentTTS:
