@@ -435,7 +435,9 @@ def master(
     )
     cmd: List[str] = [
         ffmpeg, "-y", "-loglevel", "error", "-i", str(video), *inputs,
-        "-filter_complex", f"[0:v]{vfilter}[v];{agraph}", "-map", "[v]", "-map", "[a]",
+        # The video goes through -vf, not through the same -filter_complex as the audio: with loudnorm in a graph
+        # that also carries the video, ffmpeg plays the whole mix about 3 s early against the picture.
+        "-filter_complex", agraph, "-map", "0:v", "-vf", vfilter, "-map", "[a]",
         "-c:v", "libx264", "-tune", "stillimage", "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", audio_bitrate,
         "-movflags", "+faststart",

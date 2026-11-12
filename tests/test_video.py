@@ -12,13 +12,18 @@ def _filter_complex(cmd):
     return cmd[cmd.index("-filter_complex") + 1]
 
 
+def _master_filters(cmd):
+    """master's video chain (-vf) and audio graph (-filter_complex) together."""
+    return cmd[cmd.index("-vf") + 1] + " " + _filter_complex(cmd)
+
+
 def test_master_without_music_fades_and_holds():
     runner = FakeRunner()
     master(Path("in.mp4"), Path("out.mp4"),
            fade_in=0.8, fade_out=1.2, end_hold=2.5,
            total_duration=10.0, ffmpeg="ff", runner=runner)
     cmd = runner.commands[0]
-    fc = _filter_complex(cmd)
+    fc = _master_filters(cmd)
     # total = 10 + 2.5 = 12.5; fade-out starts at 12.5 - 1.2 = 11.3
     assert "tpad=stop_mode=clone:stop_duration=2.500" in fc
     assert "fade=t=in:st=0:d=0.800" in fc
@@ -47,7 +52,7 @@ def test_master_with_music_loops_attenuates_and_mixes():
     assert "amix=inputs=2:duration=first:dropout_transition=0:normalize=0" in fc
     # both legs upmixed to stereo so the mix isn't collapsed to mono by the mono narration
     assert fc.count("aformat=sample_rates=48000:channel_layouts=stereo") == 2
-    assert cmd[cmd.index("-map") + 1] == "[v]"
+    assert cmd[cmd.index("-map") + 1] == "0:v"
 
 
 def test_master_can_skip_video_fades():
@@ -55,7 +60,7 @@ def test_master_can_skip_video_fades():
     master(Path("in.mp4"), Path("out.mp4"),
            fade_in=0, fade_out=0, end_hold=0,
            total_duration=5.0, ffmpeg="ff", runner=runner)
-    fc = _filter_complex(runner.commands[0])
+    fc = _master_filters(runner.commands[0])
     assert "fade=" not in fc
     assert "tpad" not in fc
     assert "format=yuv420p" in fc
@@ -271,7 +276,9 @@ def test_master_mixes_music_and_stings_in_its_one_pass():
     cmd = runner.commands[0]
     assert cmd[cmd.index("-c:v") + 1] == "libx264"  # the fades need a re-encode
     fc = _filter_complex(cmd)
-    assert fc.startswith("[0:v]tpad=stop_mode=clone:stop_duration=2.000,")
+    # the picture has its own -vf: sharing the audio's graph shifts a loudnorm'd mix ~3 s early against it
+    assert cmd[cmd.index("-vf") + 1].startswith("tpad=stop_mode=clone:stop_duration=2.000,")
+    assert "[0:v]" not in fc and cmd[cmd.index("-map") + 1] == "0:v"
     assert "[0:a]apad=pad_dur=2.000," in fc
     assert "adelay=9000:all=1" in fc  # outro ends on the last held frame: 12 - 3
     assert "volume=0.3," in fc and "sidechaincompress" in fc
