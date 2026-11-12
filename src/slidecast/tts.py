@@ -127,6 +127,22 @@ def _read_rules() -> Dict[str, str]:
 
 KOKORO_FIXES.update(_read_rules())
 
+# "resume" is the verb (ri-ZOOM) or the noun (REZ-oo-may); Kokoro always says the verb, and in a job-search tool the
+# noun is nearly always meant. So it is the noun unless a word before or after makes it the verb: to/will/can/... or
+# "not" before it, or "resume where/from/the/once/..." after it. The verb rules go first; a word already rewritten
+# (it then sits in "[...]") is skipped by the noun rules. "resumed" and "resuming" are only verbs: left alone.
+_RESUME_VERB_BEFORE = (r"\b(?:to|will|would|can|cannot|could|should|may|might|must|shall|do|does|did|not|then|"
+                       r"(?:don|doesn|didn|won|can|couldn|shouldn)['’]t|let['’]s)\s+")
+_RESUME_VERB_AFTER = (r"(?=\s+(?:where|from|the|once|after|when|work|working|playing|"
+                      r"normal|operations?|service|automatically)\b)")
+KOKORO_FIXES.update({
+    rf"(?i)(?P<pre>{_RESUME_VERB_BEFORE})(?P<w>resume)\b": r"\g<pre>[\g<w>](/ɹəzˈum/)",
+    rf"(?i)(?<![\[\w])(?P<w>resumes){_RESUME_VERB_AFTER}": r"[\g<w>](/ɹəzˈumz/)",
+    rf"(?i)(?<![\[\w])(?P<w>resume){_RESUME_VERB_AFTER}": r"[\g<w>](/ɹəzˈum/)",
+    r"(?i)(?<![\[\w])(?P<w>r[eé]sum[eé])\b": r"[\g<w>](/ɹˈɛzəmˌA/)",
+    r"(?i)(?<![\[\w])(?P<w>r[eé]sum[eé]s)\b": r"[\g<w>](/ɹˈɛzəmˌAz/)",
+})
+
 
 class SilentTTS:
     """Emit a silent WAV of a fixed length. Pure stdlib, fully deterministic."""

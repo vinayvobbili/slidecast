@@ -192,6 +192,25 @@ def test_kokoro_fixes_say_route_the_american_way(line, said):
     assert apply_phonetic(line, KOKORO_FIXES) == said
 
 
+NOUN, VERB = "/ɹˈɛzəmˌA/", "/ɹəzˈum/"
+
+
+@pytest.mark.parametrize("line, said", [
+    ("Your resume is attached.", f"Your [resume]({NOUN}) is attached."),
+    ("Resume, cover letter and résumés.", f"[Resume]({NOUN}), cover letter and [résumés](/ɹˈɛzəmˌAz/)."),
+    ("Tailor each resume to the job.", f"Tailor each [resume]({NOUN}) to the job."),
+    ("Where to resume the work.", f"Where to [resume]({VERB}) the work."),
+    ("It will resume tomorrow, and can't resume.", f"It will [resume]({VERB}) tomorrow, and can't [resume]({VERB})."),
+    ("The queue resumes where it stopped.", f"The queue [resumes](/ɹəzˈumz/) where it stopped."),
+    ("Then resume from the last step.", f"Then [resume]({VERB}) from the last step."),
+    ("He resumed work; resuming soon.", "He resumed work; resuming soon."),
+])
+def test_kokoro_fixes_say_resume_as_the_noun_unless_its_the_verb(line, said):
+    from slidecast.tts import KOKORO_FIXES
+
+    assert apply_phonetic(line, KOKORO_FIXES) == said
+
+
 RED, REED = "/ɹˈɛd/", "/ɹˈid/"
 
 
