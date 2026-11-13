@@ -94,6 +94,8 @@ KOKORO_FIXES: Dict[str, str] = {
     r"\burl(?P<s>s?)\b": r"URL\g<s>",
     r"\bapi(?P<s>s?)\b": r"API\g<s>",
     r"\bttl(?P<s>s?)\b": r"TTL\g<s>",
+    # Ticket ids like US12345: alone at the start misaki says the word "us"
+    r"\bUS(?=\d)": "U S ",
     # "24x7", "24 x 7", "1280×800": number, x, number is "24 by 7", not the letter x. "2x faster" (times) and hex
     # like 0x1F are left alone, as is anything inside a word or identifier, and "6 × 24 h" (times, a unit follows)
     r"(?<![\w.])(?!0[xX])(?P<a>\d+)\s?[x×]\s?(?P<b>\d+)(?!\w|\s(?:h|hrs?|hours?|m|mins?|s|secs?|ms|d|days?)\b)": r"\g<a> by \g<b>",

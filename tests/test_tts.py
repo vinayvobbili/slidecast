@@ -186,6 +186,7 @@ def test_kokoro_fixes_spell_out_acronyms(line, said):
     ("I'd say the idea, an idle bid, and valid ids.", "I'd say the idea, an idle bid, and valid IDs."),
     ("Log the url, urls, api and apis with a ttl.", "Log the URL, URLs, API and APIs with a TTL."),
     ("Curly and hurl and rapid and apiary stay.", "Curly and hurl and rapid and apiary stay."),
+    ("US12345 is contained; the US and USB2 stay.", "U S 12345 is contained; the US and USB2 stay."),
 ])
 def test_kokoro_fixes_spell_out_lowercase_tech_words(line, said):
     from slidecast.tts import KOKORO_FIXES
