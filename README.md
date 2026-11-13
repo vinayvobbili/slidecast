@@ -103,7 +103,13 @@ directory and makes the bed outlast the reel:
 ```python
 reel = Reel(tts=..., music="compose", intro="compose", outro="compose", lead_in=2.0)
 reel = Reel(tts=..., music=Music("compose", volume=0.18))   # a composed bed, your settings
+reel = Reel(tts=..., music=Music("compose", style="upbeat"), intro="compose", outro="compose")
 ```
+
+`style="upbeat"` (or `slidecast compose --style upbeat`) is a 124 BPM dance bed: four-on-the-floor kick,
+claps on 2 and 4, 16th hi-hats, an off-beat bass, bright chord stabs and a short lead motif, with a build
+and crash every 8 bars. Its stings are punchier to match. The 1-4 kHz speech band is carved out of the mix,
+and the bed ducks 18 dB under the voice by default (12 for the calm style).
 
 In Python, `music_bed(length, bpm, seed)`, `intro_sting(seed)` and
 `outro_sting()` return the audio as numpy arrays, and `write_wav(path, audio)`

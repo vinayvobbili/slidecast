@@ -52,6 +52,8 @@ def test_music_rejects_bad_values():
         Music("bed.mp3", fade_out=-1)
     with pytest.raises(ValueError):
         Music("bed.mp3", duck_db=-3)
+    with pytest.raises(ValueError, match="style"):
+        Music("compose", style="polka")
 
 
 def test_music_and_sting_coerce_paths():

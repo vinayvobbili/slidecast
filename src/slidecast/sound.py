@@ -122,17 +122,195 @@ def _place(buf, sig, at):
         buf[i:j] += sig[: j - i]
 
 
-def music_bed(length: float = 95.0, bpm: float = 84, seed: int = 7):
-    """A lo-fi bed ``length`` seconds long, as a ``(samples, 2)`` float array.
+# ---------------------------------------------------------------------------------------------------------------
+# The "upbeat" style: a 124 BPM dance bed. Drums and bass live below ~400 Hz and above ~5 kHz, and the finished mix
+# is carved with a broad dip over the 1-4 kHz speech band, so a narrator stays clear on top of it.
+# ---------------------------------------------------------------------------------------------------------------
+
+STYLES = ("calm", "upbeat")
+# Per style: default tempo, the length of one loop of its phrase in beats, and how many such phrases the looped
+# long bed synthesizes. The upbeat phrase is 8 bars, so its builds line up wherever the loop joins.
+_STYLE_INFO = {
+    "calm": {"bpm": 84.0, "cycle_beats": 16, "cycles": 8},
+    "upbeat": {"bpm": 124.0, "cycle_beats": 32, "cycles": 6},
+}
+SPEECH_BAND = (1000.0, 4000.0)
+_CARVE_DEPTH = 0.8  # how much of the 1-4 kHz band the carve removes at its centre (0.8 -> -14 dB)
+
+
+def check_style(style: str) -> str:
+    if style not in STYLES:
+        raise ValueError(f"unknown style {style!r}; choose from {', '.join(STYLES)}")
+    return style
+
+
+def default_bpm(style: str) -> float:
+    """The tempo a style plays at unless one is asked for."""
+    return _STYLE_INFO[check_style(style)]["bpm"]
+
+
+def _highpass(x, cutoff):
+    return x - _lowpass(x, cutoff)
+
+
+def _carve_speech_band(x):
+    """Dip the speech band (about 1-4 kHz) of a ``(samples, 2)`` mix, smoothly, by ``_CARVE_DEPTH``."""
+    f = np.fft.rfftfreq(len(x), 1 / _SR)
+    octaves = np.log2(np.maximum(f, 1.0) / 2000.0)
+    gain = 1 - _CARVE_DEPTH * np.exp(-(octaves / 1.3) ** 2)
+    return np.stack([np.fft.irfft(np.fft.rfft(x[:, c]) * gain, len(x)) for c in range(x.shape[1])], axis=1)
+
+
+def _tone_stack(freq, dur, decay, bright=9000.0):
+    """A bright additive pluck: a detuned pair of band-limited saw-ish voices."""
+    t = _t(dur)
+    s = np.zeros_like(t)
+    for d in (-0.004, 0.004):
+        f = freq * (1 + d)
+        for k in range(1, 16):
+            if f * k > bright:
+                break
+            s += np.sin(2 * np.pi * f * k * t) / k
+    return s * np.exp(-t * decay) * _env(len(t), 0.003, 0.03)
+
+
+def _clap(rng, dur=0.2):
+    """A hand-clap: three quick noise bursts, all above ~4.5 kHz so it stays out of the speech band."""
+    out = np.zeros(int(dur * _SR))
+    for k, amp in enumerate((0.6, 0.8, 1.0)):
+        burst = _highpass(rng.standard_normal(int(0.12 * _SR)), 4500) * np.exp(-_t(0.12) * 32)
+        _place(out, burst * amp, k * 0.011)
+    return out
+
+
+def _hat(rng, open_=False):
+    dur = 0.22 if open_ else 0.05
+    return _highpass(rng.standard_normal(int(dur * _SR)), 7000) * np.exp(-_t(dur) * (16 if open_ else 80))
+
+
+def _crash(rng, dur=1.6):
+    n = int(dur * _SR)
+    return _highpass(rng.standard_normal(n), 5000) * np.exp(-_t(dur) * 2.6) * _env(n, 0.004, 0.2)
+
+
+def _riser(rng, dur):
+    return _highpass(rng.standard_normal(int(dur * _SR)), 3500) * (_t(dur) / dur) ** 2
+
+
+def _bass_note(freq, dur):
+    t = _t(dur)
+    s = np.sin(2 * np.pi * freq * t) + 0.35 * np.sin(2 * np.pi * 2 * freq * t)
+    return _lowpass(s, 380) * np.exp(-t * 4.5) * _env(len(t), 0.004, 0.04)
+
+
+# C - G - Am - F, a bright major loop: the stab voicings, the bass roots, and the lead's motif as
+# (16th-note step, chord tone) pairs, played an octave above the stabs.
+_UP_STABS = [[64, 67, 72], [62, 67, 71], [64, 69, 72], [65, 69, 72]]
+_UP_ROOTS = [36, 43, 45, 41]
+_UP_MOTIF = [(0, 0), (3, 1), (6, 2), (8, 1), (11, 0), (14, 1)]
+_UP_ANSWER = [(0, 2), (3, 1), (6, 0), (8, 1), (10, 2), (12, 1)]  # the second bar of each pair, falling
+_BUILD_EVERY = 8  # bars between builds
+
+
+def _upbeat_bed(length, bpm, seed):
+    rng = np.random.default_rng(seed)
+    beat = 60 / bpm
+    bar = 4 * beat
+    step = beat / 4
+    n = int((length + 3) * _SR)
+    stabs, lead, bass, drums = (np.zeros(n) for _ in range(4))
+    kick, clap = _kick(0.3), _clap(rng)
+    hats = [_hat(rng), _hat(rng)]
+    open_hat, crash = _hat(rng, open_=True), _crash(rng)
+    for b in range(int(np.ceil(length / bar))):
+        at, c = b * bar, b % 4
+        build = b % _BUILD_EVERY == _BUILD_EVERY - 1  # the bar before a landing: fill and riser
+        landing = b % _BUILD_EVERY == 0 and b > 0
+        for s in (2, 6, 10, 14):  # chord stabs and bass on the off-beat eighths, against the kick
+            for note in _UP_STABS[c]:
+                _place(stabs, _tone_stack(_hz(note), 0.28, 9), at + s * step)
+            _place(bass, _bass_note(_hz(_UP_ROOTS[c] + (12 if s == 14 else 0)), 0.3), at + s * step)
+        if b >= 1:  # the lead and the drums come in after the first bar
+            for s, tone in (_UP_MOTIF if b % 2 == 0 else _UP_ANSWER):
+                _place(lead, _tone_stack(_hz(_UP_STABS[c][tone] + 12), 0.32, 6), at + s * step)
+            for k in range(3 if build else 4):  # four on the floor; a build's last beat is the roll
+                _place(drums, kick, at + k * beat)
+            for k in (1,) if build else (1, 3):  # clap on 2 and 4
+                _place(drums, clap * 0.9, at + k * beat)
+            for s in range(12 if build else 16):
+                _place(drums, hats[s % 2] * (0.55 if s % 4 == 2 else 0.3), at + s * step)
+            for s in (2, 6, 10) if build else (2, 6, 10, 14):
+                _place(drums, open_hat * 0.35, at + s * step)
+        else:
+            for s in range(0, 16, 2):
+                _place(drums, hats[(s // 2) % 2] * 0.3, at + s * step)
+        if build:  # a snare roll in 32nds over the last beat, and a riser under the bar
+            for i in range(8):
+                _place(drums, clap * (0.35 + 0.08 * i), at + (12 + i * 0.5) * step)
+            _place(drums, 0.35 * _riser(rng, bar), at)
+        if landing:
+            _place(drums, 0.5 * crash, at)
+    melodic = _reverb(0.2 * stabs + 0.22 * lead, 0.7, 0.2, seed=1)[:n]
+    low = 0.55 * bass + 0.95 * drums
+    mix = _carve_speech_band((melodic + np.stack([low, low], axis=1))[: int(length * _SR)])
+    # a soft clip raises the average level without a hard ceiling
+    mix = np.tanh(1.6 * mix / max(float(np.max(np.abs(mix))), 1e-9))
+    return mix * _env(len(mix), 1.5, 3.0)[:, None]
+
+
+def _upbeat_intro(seed):
+    """A punchy opener, 5.1 s: a snare roll and riser into a bright C chord, kick and crash at 1.0 s."""
+    rng = np.random.default_rng(seed)
+    out = np.zeros(int(5.1 * _SR))
+    clap = _clap(rng)
+    _place(out, 0.5 * _riser(rng, 1.0), 0.0)
+    hits = 16
+    for k in range(hits):  # the roll speeds up as it climbs
+        _place(out, clap * (0.15 + 0.5 * k / hits), 1.0 * (1 - (1 - k / hits) ** 1.6))
+    for m in (60, 64, 67, 72, 76):
+        _place(out, 0.2 * _tone_stack(_hz(m + 12), 1.2, 3.2), 1.0)
+        _place(out, 0.12 * _bell(_hz(m + 12), 2.6), 1.0)
+    _place(out, 0.8 * _kick(0.5), 1.0)
+    _place(out, 0.4 * np.sin(2 * np.pi * _hz(36) * _t(1.2)) * np.exp(-_t(1.2) * 4), 1.0)
+    _place(out, 0.45 * _crash(rng), 1.0)
+    _place(out, 0.8 * clap, 1.5)
+    stereo = 0.3 * _reverb(out, 1.2, 0.25, seed=2)[: len(out)] + 0.7 * np.stack([out, out], axis=1)
+    return _carve_speech_band(stereo)
+
+
+def _upbeat_outro():
+    """A punchy closer, 5.0 s: a quick climbing C arpeggio into a big chord, kick and clap at 0.75 s."""
+    rng = np.random.default_rng(7)
+    out = np.zeros(int(5.0 * _SR))
+    for k, m in enumerate((72, 76, 79, 84, 88)):
+        _place(out, 0.22 * _tone_stack(_hz(m), 0.3, 8), k * 0.125)
+    for m in (48, 60, 64, 67, 72, 79):
+        _place(out, 0.16 * _tone_stack(_hz(m), 1.4, 3.0), 0.75)
+        _place(out, 0.1 * _bell(_hz(m + 12), 3.0), 0.75)
+    _place(out, 0.8 * _kick(0.5), 0.75)
+    _place(out, 0.7 * _clap(rng), 0.75)
+    _place(out, 0.4 * _crash(rng), 0.75)
+    stereo = 0.3 * _reverb(out, 1.6, 0.3, seed=3)[: len(out)] + 0.7 * np.stack([out, out], axis=1)
+    return _carve_speech_band(stereo)
+
+
+def music_bed(length: float = 95.0, bpm: float = None, seed: int = 7, style: str = "calm"):
+    """A bed ``length`` seconds long, as a ``(samples, 2)`` float array.
+
+    ``style`` is "calm" (a lo-fi loop at 84 BPM) or "upbeat" (a 124 BPM dance bed with a build every 8 bars;
+    see the module notes). ``bpm`` defaults to the style's tempo.
 
     It fades in over 1.5 s and out over its last 3 s, so when it loops under a
     reel, make it longer than the reel (by 3 s or more) or the fade dips.
-    ``seed`` picks the pad's phases and the shaker's noise; the same seed gives
+    ``seed`` picks the noise (and, for calm, the pad's phases); the same seed gives
     the same audio.
     """
     require_numpy()
+    bpm = default_bpm(style) if bpm is None else bpm
     if length <= 0 or bpm <= 0:
         raise ValueError("length and bpm must be positive")
+    if style == "upbeat":
+        return _upbeat_bed(length, bpm, seed)
     rng = np.random.default_rng(seed)
     beat = 60 / bpm
     bar = 4 * beat
@@ -164,9 +342,14 @@ def music_bed(length: float = 95.0, bpm: float = 84, seed: int = 7):
     return stereo * _env(len(stereo), 1.5, 3.0)[:, None]
 
 
-def intro_sting(seed: int = 7):
-    """An opening cue, 5.1 s: a swoosh rising to a bell-chord hit at 1.0 s, then its ring-out."""
+def intro_sting(seed: int = 7, style: str = "calm"):
+    """An opening cue, 5.1 s: a swoosh rising to a bell-chord hit at 1.0 s, then its ring-out.
+
+    The "upbeat" style swaps the swoosh for a snare roll and lands with a kick, a crash and a bright stab.
+    """
     require_numpy()
+    if check_style(style) == "upbeat":
+        return _upbeat_intro(seed)
     rng = np.random.default_rng(seed)
     dur = 2.6
     t = _t(dur)
@@ -187,9 +370,14 @@ def intro_sting(seed: int = 7):
     return _reverb(out, 2.0, 0.4, seed=2)[: len(out)]
 
 
-def outro_sting():
-    """A closing cue, 5.0 s: G–E–C–G bells falling onto a wide Cmaj7 at 0.75 s."""
+def outro_sting(style: str = "calm"):
+    """A closing cue, 5.0 s: G–E–C–G bells falling onto a wide Cmaj7 at 0.75 s.
+
+    The "upbeat" style climbs a quick arpeggio into a big chord with a kick, clap and crash.
+    """
     require_numpy()
+    if check_style(style) == "upbeat":
+        return _upbeat_outro()
     out = np.zeros(int(5.0 * _SR))
     for k, m in enumerate((79, 76, 72, 67)):  # G–E–C–G descending
         _place(out, 0.25 * _bell(_hz(m), 2.0), k * 0.16)
@@ -221,11 +409,11 @@ def write_wav(path, samples, peak: float = 0.89) -> float:
 # A bed longer than this is built from a short synthesized one, looped: music_bed() holds several float64
 # arrays and an FFT as long as the bed, which for a drill of nearly an hour is over 10 GB.
 LOOP_ABOVE = 150.0
-_LOOP_CYCLES = 8  # the synthesized source, in 4-bar chord cycles
 _SEAM = 1.0  # seconds crossfaded where one piece joins the next
 
 
-def write_long_bed(path, length: float, bpm: float = 84, seed: int = 7, peak: float = 0.89) -> float:
+def write_long_bed(path, length: float, bpm: float = None, seed: int = 7, peak: float = 0.89,
+                   style: str = "calm") -> float:
     """Write a bed at least ``length`` seconds long as a WAV; return its length.
 
     Up to :data:`LOOP_ABOVE` this is :func:`music_bed` through :func:`write_wav`. Beyond it, the chord cycles in
@@ -233,10 +421,12 @@ def write_long_bed(path, length: float, bpm: float = 84, seed: int = 7, peak: fl
     WAV is written in pieces, so memory stays the same however long the bed.
     """
     if length <= LOOP_ABOVE:
-        return write_wav(path, music_bed(length, bpm=bpm, seed=seed), peak=peak)
+        return write_wav(path, music_bed(length, bpm=bpm, seed=seed, style=style), peak=peak)
     require_numpy()
-    cycle = int(round(16 * 60 / bpm * _SR))
-    src = music_bed(_LOOP_CYCLES * cycle / _SR, bpm=bpm, seed=seed)
+    info = _STYLE_INFO[check_style(style)]
+    bpm = info["bpm"] if bpm is None else bpm
+    cycle = int(round(info["cycle_beats"] * 60 / bpm * _SR))
+    src = music_bed(info["cycles"] * cycle / _SR, bpm=bpm, seed=seed, style=style)
     head, body, tail = src[: 2 * cycle], src[2 * cycle: 5 * cycle], src[5 * cycle:]
     scale = peak / max(float(np.max(np.abs(src))), 1e-12)
     seam = int(_SEAM * _SR)
@@ -264,7 +454,7 @@ def write_long_bed(path, length: float, bpm: float = 84, seed: int = 7, peak: fl
     return written / _SR
 
 
-def compose(out_dir, length: float = 95.0, bpm: float = 84, seed: int = 7) -> Dict[str, Path]:
+def compose(out_dir, length: float = 95.0, bpm: float = None, seed: int = 7, style: str = "calm") -> Dict[str, Path]:
     """Write music_bed.wav, intro_sting.wav and outro_sting.wav into ``out_dir``.
 
     Returns the three paths by name ("music_bed", "intro_sting", "outro_sting").
@@ -273,7 +463,7 @@ def compose(out_dir, length: float = 95.0, bpm: float = 84, seed: int = 7) -> Di
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     paths = {name: out_dir / f"{name}.wav" for name in ("music_bed", "intro_sting", "outro_sting")}
-    write_wav(paths["music_bed"], music_bed(length, bpm=bpm, seed=seed))
-    write_wav(paths["intro_sting"], intro_sting(seed=seed))
-    write_wav(paths["outro_sting"], outro_sting())
+    write_wav(paths["music_bed"], music_bed(length, bpm=bpm, seed=seed, style=style))
+    write_wav(paths["intro_sting"], intro_sting(seed=seed, style=style))
+    write_wav(paths["outro_sting"], outro_sting(style=style))
     return paths

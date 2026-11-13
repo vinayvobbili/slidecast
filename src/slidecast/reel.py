@@ -153,7 +153,7 @@ class Reel:
         """Synthesize a bed that outlasts the reel, so its own closing fade never loops in."""
         length = _video.probe_duration(raw, ffmpeg=ffmpeg) + end_hold + 4.0
         path = work / "music_bed.wav"
-        _sound.write_long_bed(path, length)
+        _sound.write_long_bed(path, length, style=bed.style)
         return replace(bed, file=path)
 
     @staticmethod
@@ -232,8 +232,9 @@ class Reel:
         speech: List[tuple] = []
         clock = 0.0
         try:
-            intro = self._compose_sting(intro, work / "intro_sting.wav", _sound.intro_sting)
-            outro = self._compose_sting(outro, work / "outro_sting.wav", _sound.outro_sting)
+            style = bed.style if bed is not None else "calm"  # composed stings match the bed's style
+            intro = self._compose_sting(intro, work / "intro_sting.wav", lambda: _sound.intro_sting(style=style))
+            outro = self._compose_sting(outro, work / "outro_sting.wav", lambda: _sound.outro_sting(style=style))
             lead_in = self.lead_in
             if lead_in is None:
                 lead_in = _video.probe_duration(intro.file, ffmpeg=ffmpeg) if intro else 0.0

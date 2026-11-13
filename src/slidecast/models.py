@@ -71,6 +71,8 @@ Segment = Union[Slide, Clip]
 # A Music or Sting ``file`` of "compose" asks the reel to synthesize one (see
 # :mod:`slidecast.sound`) into its work directory at render time.
 COMPOSE = "compose"
+STYLES = ("calm", "upbeat")  # the composed styles; kept in step with sound.STYLES (sound needs numpy)
+UPBEAT_DUCK_DB = 18.0
 
 
 @dataclass
@@ -88,7 +90,9 @@ class Music:
         fade_in / fade_out: Seconds to fade the bed in at the start and out at
             the end. 0 skips the fade.
         duck: Pull the bed down while the voice is talking.
-        duck_db: How far it dips under the voice, in dB. A :class:`Reel` knows
+        style: For a composed bed (and the stings): "calm" (lo-fi, 84 BPM) or "upbeat" (a 124 BPM dance
+            bed with builds, kept out of the speech band, and ducked harder by default).
+        duck_db: How far it dips under the voice, in dB (12 by default, 18 for the upbeat style). A :class:`Reel` knows
             when each line is spoken, so the bed eases down just before each
             line, holds there, and swells back in the pause after it. Without
             those times (:func:`mix_music` on a finished video) a sidechain
@@ -100,12 +104,17 @@ class Music:
     fade_in: float = 1.0
     fade_out: float = 2.0
     duck: bool = True
-    duck_db: float = 12.0
+    duck_db: Optional[float] = None
+    style: str = "calm"
 
     def __post_init__(self) -> None:
         if not str(self.file).strip():
             raise ValueError("Music.file must be a path to an audio file")
         self.file = Path(self.file)
+        if self.style not in STYLES:
+            raise ValueError(f"Music.style must be one of {', '.join(STYLES)}")
+        if self.duck_db is None:  # the upbeat bed is busier, so it dips further under the voice
+            self.duck_db = UPBEAT_DUCK_DB if self.style == "upbeat" else 12.0
         if min(self.volume, self.fade_in, self.fade_out, self.duck_db) < 0:
             raise ValueError("volume, fade_in, fade_out and duck_db must be non-negative")
 

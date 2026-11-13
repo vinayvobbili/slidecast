@@ -145,8 +145,8 @@ def test_main_compose_passes_its_options(monkeypatch, tmp_path, capsys):
 
     calls = []
 
-    def fake_compose(out_dir, length, bpm, seed):
-        calls.append((out_dir, length, bpm, seed))
+    def fake_compose(out_dir, length, bpm, seed, style):
+        calls.append((out_dir, length, bpm, seed, style))
         out_dir.mkdir()
         paths = {n: out_dir / f"{n}.wav" for n in ("music_bed", "intro_sting", "outro_sting")}
         for p in paths.values():
@@ -156,7 +156,9 @@ def test_main_compose_passes_its_options(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(sound, "compose", fake_compose)
     assert main(["compose", "-o", str(tmp_path / "a"), "--length", "30", "--bpm", "90", "--seed", "3"]) == 0
     assert main(["compose", "-o", str(tmp_path / "b")]) == 0
-    assert calls == [(tmp_path / "a", 30.0, 90.0, 3), (tmp_path / "b", 95.0, 84.0, 7)]
+    assert main(["compose", "-o", str(tmp_path / "c"), "--style", "upbeat"]) == 0
+    assert calls == [(tmp_path / "a", 30.0, 90.0, 3, "calm"), (tmp_path / "b", 95.0, None, 7, "calm"),
+                     (tmp_path / "c", 95.0, None, 7, "upbeat")]
     assert "music_bed.wav (0.5 s)" in capsys.readouterr().out
 
 

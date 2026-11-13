@@ -95,7 +95,7 @@ def _build_music(cfg: Any, base: Path):
     if not cfg:
         return None
     return Music(**_audio_cfg(cfg, base, "music", {
-        "volume": float, "fade_in": float, "fade_out": float, "duck": bool, "duck_db": float}))
+        "volume": float, "fade_in": float, "fade_out": float, "duck": bool, "duck_db": float, "style": str}))
 
 
 def _build_sting(cfg: Any, base: Path, key: str):
@@ -156,7 +156,9 @@ def main(argv=None) -> int:
                    help="directory for music_bed.wav, intro_sting.wav, outro_sting.wav")
     c.add_argument("--length", type=float, default=95.0, metavar="SECONDS",
                    help="bed length in seconds; make it outlast the reel (default 95)")
-    c.add_argument("--bpm", type=float, default=84, metavar="N", help="bed tempo (default 84)")
+    c.add_argument("--style", choices=sound.STYLES, default="calm", help="calm lo-fi (default) or upbeat dance")
+    c.add_argument("--bpm", type=float, default=None, metavar="N",
+                   help="bed tempo (default: 84 for calm, 124 for upbeat)")
     c.add_argument("--seed", type=int, default=7, metavar="N",
                    help="same seed, same audio (default 7)")
     k = sub.add_parser("check", help="how much quiet each slide change gets, in a rendered reel")
@@ -185,10 +187,10 @@ def main(argv=None) -> int:
         return 1 if any(c.quiet_before < args.min_gap for c in found) else 0
 
     if args.cmd == "compose":
-        if args.length <= 0 or args.bpm <= 0:
+        if args.length <= 0 or (args.bpm is not None and args.bpm <= 0):
             parser.error("--length and --bpm must be positive")
         try:
-            paths = sound.compose(args.out, length=args.length, bpm=args.bpm, seed=args.seed)
+            paths = sound.compose(args.out, length=args.length, bpm=args.bpm, seed=args.seed, style=args.style)
         except ImportError as e:
             raise SystemExit(str(e))
         for path in paths.values():
