@@ -181,7 +181,31 @@ def test_kokoro_fixes_spell_out_acronyms(line, said):
 
 
 @pytest.mark.parametrize("line, said", [
-    ("We cover it 24x7.", "We cover it 24 by 7."),
+    ("The tenant id and the ids.", "The tenant ID and the IDs."),
+    ("Id first; ID and IDs stay.", "ID first; ID and IDs stay."),
+    ("I'd say the idea, an idle bid, and valid ids.", "I'd say the idea, an idle bid, and valid IDs."),
+    ("Log the url, urls, api and apis with a ttl.", "Log the URL, URLs, API and APIs with a TTL."),
+    ("Curly and hurl and rapid and apiary stay.", "Curly and hurl and rapid and apiary stay."),
+])
+def test_kokoro_fixes_spell_out_lowercase_tech_words(line, said):
+    from slidecast.tts import KOKORO_FIXES
+
+    assert apply_phonetic(line, KOKORO_FIXES) == said
+
+
+def test_misaki_spells_out_id_after_the_fix():
+    en = pytest.importorskip("misaki.en")
+    from slidecast.tts import KOKORO_FIXES
+
+    g2p = en.G2P(trf=False, british=False)
+    phonemes, _ = g2p(apply_phonetic("the tenant id", KOKORO_FIXES))
+    assert "ˌIdˈi" in phonemes and "ˈɪd" not in phonemes, phonemes
+    phonemes, _ = g2p(apply_phonetic("p95 latency of the ids", KOKORO_FIXES))
+    assert "pˈi nˈIndi fˈIv" in phonemes and "ˌIdˈiz" in phonemes, phonemes
+
+
+@pytest.mark.parametrize("line, said", [
+    ("We cover it 24x7.","We cover it 24 by 7."),
     ("A 24 x 7 rota, and 24×7 too.", "A 24 by 7 rota, and 24 by 7 too."),
     ("Set it to 1280x800.", "Set it to 1280 by 800."),
     ("It is 2x faster and 10x better.", "It is 2x faster and 10x better."),

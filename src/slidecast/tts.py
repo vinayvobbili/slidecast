@@ -88,6 +88,12 @@ KOKORO_FIXES: Dict[str, str] = {
     r"\bGCP\b": "G C P",
     r"\bEDR\b": "E D R",
     r"\bIAM\b": "I A M",
+    # Lowercase tech words misaki can't read: "id" is the Freudian word, "url"/"api"/"ttl" come out as nothing.
+    # Uppercased they are spelled out ("I D"). "I'd" and words that merely contain these letters are left alone.
+    r"\b[Ii]d(?P<s>s?)\b": r"ID\g<s>",
+    r"\burl(?P<s>s?)\b": r"URL\g<s>",
+    r"\bapi(?P<s>s?)\b": r"API\g<s>",
+    r"\bttl(?P<s>s?)\b": r"TTL\g<s>",
     # "24x7", "24 x 7", "1280×800": number, x, number is "24 by 7", not the letter x. "2x faster" (times) and hex
     # like 0x1F are left alone, as is anything inside a word or identifier, and "6 × 24 h" (times, a unit follows)
     r"(?<![\w.])(?!0[xX])(?P<a>\d+)\s?[x×]\s?(?P<b>\d+)(?!\w|\s(?:h|hrs?|hours?|m|mins?|s|secs?|ms|d|days?)\b)": r"\g<a> by \g<b>",
