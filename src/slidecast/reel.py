@@ -322,7 +322,7 @@ class Reel:
             else:
                 _video.concat(segments, out_path, ffmpeg=ffmpeg)
             if make_poster:
-                # Past the fade-in, or the poster is a dark frame.
+                # Past an opt-in fade-in, or the poster is a dark frame.
                 image = _video.poster(out_path, out_path.with_name(out_path.stem + "_poster.jpg"),
                                       at=fade_in + 0.2 if fade_in > 0 else 0.0, ffmpeg=ffmpeg)
                 _video.embed_poster(out_path, image, ffmpeg=ffmpeg)  # the file's own thumbnail

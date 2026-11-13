@@ -372,7 +372,7 @@ def master(
     music=None,
     intro=None,
     outro=None,
-    fade_in: float = 0.8,
+    fade_in: float = 0.0,
     fade_out: float = 1.2,
     end_hold: float = 2.5,
     music_volume: Optional[float] = None,
@@ -389,8 +389,10 @@ def master(
 
     A single ffmpeg pass that turns the raw concat into a polished cut:
 
-    * ``fade_in`` / ``fade_out`` — video fade durations in seconds, so the reel
-      eases in and out instead of cutting hard.
+    * ``fade_out`` — video fade-out duration in seconds, so the reel eases out
+      instead of cutting hard. ``fade_in`` is an opt-in fade up from black (off
+      by default: players use frame 0 as the thumbnail, so the reel starts at
+      full brightness).
     * ``end_hold`` — seconds to freeze the final frame (cloned) after narration
       ends, so the last slide doesn't vanish mid-thought. Narration audio is
       padded with silence across the hold.
@@ -422,9 +424,7 @@ def master(
     if end_hold > 0:
         vchain.append(f"tpad=stop_mode=clone:stop_duration={end_hold:.3f}")
     if fade_in > 0:
-        # Rise from a dimmed first frame, not black: players and Finder use frame 0 as the thumbnail.
-        ramp = f"{FADE_IN_FLOOR}+{1 - FADE_IN_FLOOR:.2f}*min(t/{fade_in:.3f},1)"
-        vchain.append(f"eq=contrast='{ramp}':saturation='{ramp}':eval=frame")
+        vchain.append(f"fade=t=in:st=0:d={fade_in:.3f}")
     if fade_out > 0:
         vchain.append(f"fade=t=out:st={max(total - fade_out, 0.0):.3f}:d={fade_out:.3f}")
     vchain.append("format=yuv420p")
@@ -505,9 +505,6 @@ def mix_music(
     ]
     runner(cmd, check=True)
     return out
-
-
-FADE_IN_FLOOR = 0.4  # brightness of the first frame when the video fades in
 
 
 def embed_poster(

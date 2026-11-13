@@ -270,7 +270,7 @@ def test_poster_is_embedded_as_cover_and_the_first_frame_is_not_black(tmp_path):
     reel = Reel(width=160, height=120, fps=25, tts=ToneTTS(), renderer=PngRenderer(png))
     reel.add("<h1>one</h1>", "first", tail_pad=0.5)
     out = reel.render(tmp_path / "out.mp4", ffmpeg=FFMPEG, workdir=tmp_path / "work",
-                      fade_in=0.6, make_poster=True)
+                      fade_out=0.3, make_poster=True)
 
     info = subprocess.run([FFMPEG, "-i", str(out)], capture_output=True, text=True).stderr
     assert "attached pic" in info
@@ -279,8 +279,14 @@ def test_poster_is_embedded_as_cover_and_the_first_frame_is_not_black(tmp_path):
     decoded = subprocess.run([FFMPEG, "-v", "error", "-i", str(out), "-f", "null", "-"],
                              capture_output=True, text=True)
     assert decoded.returncode == 0 and not decoded.stderr.strip()
-    # Frame 0 is dimmed, not black.
+    # Frame 0 and the embedded cover are the slide at full brightness.
+    def gray(path):
+        res = subprocess.run([FFMPEG, "-i", str(path), "-vf", "scale=1:1,format=gray", "-f", "rawvideo", "-"],
+                             capture_output=True)
+        return res.stdout[0]
+
+    slide = gray(png)
     frame = _make(["-i", str(out), "-map", "0:v:0", "-frames:v", "1"], tmp_path / "f0.png")
-    res = subprocess.run([FFMPEG, "-i", str(frame), "-vf", "scale=1:1,format=gray", "-f", "rawvideo", "-"],
-                         capture_output=True)
-    assert res.stdout[0] > 40
+    cover = _make(["-i", str(out), "-map", "0:v:1", "-frames:v", "1"], tmp_path / "cover.png")
+    assert abs(gray(frame) - slide) <= 6
+    assert abs(gray(cover) - slide) <= 6

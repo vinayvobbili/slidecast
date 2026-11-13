@@ -27,9 +27,9 @@ def test_master_without_music_fades_and_holds():
     fc = _master_filters(cmd)
     # total = 10 + 2.5 = 12.5; fade-out starts at 12.5 - 1.2 = 11.3
     assert "tpad=stop_mode=clone:stop_duration=2.500" in fc
-    # the picture rises from a dimmed first frame, never from pure black
-    assert "eq=contrast='0.4+0.60*min(t/0.800,1)':saturation='0.4+0.60*min(t/0.800,1)':eval=frame" in fc
-    assert "fade=t=in" not in fc
+    # an opt-in fade-in rises from black; by default there is none (see the next test)
+    assert "fade=t=in:st=0:d=0.800" in fc
+    assert "eq=" not in fc
     assert "fade=t=out:st=11.300:d=1.200" in fc
     assert "apad=pad_dur=2.500" in fc
     assert "amix" not in fc  # no music -> no mixer
@@ -56,6 +56,14 @@ def test_master_with_music_loops_attenuates_and_mixes():
     # both legs upmixed to stereo so the mix isn't collapsed to mono by the mono narration
     assert fc.count("aformat=sample_rates=48000:channel_layouts=stereo") == 2
     assert cmd[cmd.index("-map") + 1] == "0:v"
+
+
+def test_master_starts_at_full_brightness_by_default():
+    runner = FakeRunner()
+    master(Path("in.mp4"), Path("out.mp4"), end_hold=1.0, total_duration=10.0, ffmpeg="ff", runner=runner)
+    fc = _master_filters(runner.commands[0])
+    assert "fade=t=in" not in fc and "eq=" not in fc  # frame 0 is the first slide as designed
+    assert "fade=t=out" in fc
 
 
 def test_master_can_skip_video_fades():
