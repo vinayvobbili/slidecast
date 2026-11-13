@@ -186,6 +186,7 @@ def test_kokoro_fixes_spell_out_acronyms(line, said):
     ("Set it to 1280x800.", "Set it to 1280 by 800."),
     ("It is 2x faster and 10x better.", "It is 2x faster and 10x better."),
     ("Mask 0x1F and 0x10 stay hex; so do v2x7 and a24x7b.", "Mask 0x1F and 0x10 stay hex; so do v2x7 and a24x7b."),
+    ("Worst case 6 × 24 h, then 6 × 48 hours.", "Worst case 6 × 24 h, then 6 × 48 hours."),
     ("Version 1.2x3 and 24/7 stay.", "Version 1.2x3 and 24/7 stay."),
 ])
 def test_kokoro_fixes_say_n_x_m_as_n_by_m(line, said):
