@@ -83,6 +83,9 @@ KOKORO_FIXES: Dict[str, str] = {
     r"\bGCP\b": "G C P",
     r"\bEDR\b": "E D R",
     r"\bIAM\b": "I A M",
+    # "24x7", "24 x 7", "1280×800": number, x, number is "24 by 7", not the letter x. "2x faster" (times) and hex
+    # like 0x1F are left alone, as is anything inside a word or identifier
+    r"(?<![\w.])(?!0[xX])(?P<a>\d+)\s?[x×]\s?(?P<b>\d+)(?!\w)": r"\g<a> by \g<b>",
     # "route" the American way (rhymes with "out"), not the British "root"; whole words, so "routine" stays
     r"\b(?P<r>[Rr])oute(?P<s>s?)\b": r"\g<r>owt\g<s>",
     r"\b(?P<r>[Rr])outed\b": r"\g<r>owted",

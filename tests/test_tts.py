@@ -181,6 +181,20 @@ def test_kokoro_fixes_spell_out_acronyms(line, said):
 
 
 @pytest.mark.parametrize("line, said", [
+    ("We cover it 24x7.", "We cover it 24 by 7."),
+    ("A 24 x 7 rota, and 24×7 too.", "A 24 by 7 rota, and 24 by 7 too."),
+    ("Set it to 1280x800.", "Set it to 1280 by 800."),
+    ("It is 2x faster and 10x better.", "It is 2x faster and 10x better."),
+    ("Mask 0x1F and 0x10 stay hex; so do v2x7 and a24x7b.", "Mask 0x1F and 0x10 stay hex; so do v2x7 and a24x7b."),
+    ("Version 1.2x3 and 24/7 stay.", "Version 1.2x3 and 24/7 stay."),
+])
+def test_kokoro_fixes_say_n_x_m_as_n_by_m(line, said):
+    from slidecast.tts import KOKORO_FIXES
+
+    assert apply_phonetic(line, KOKORO_FIXES) == said
+
+
+@pytest.mark.parametrize("line, said", [
     ("Route it. Routes, routed, routing.", "Rowt it. Rowts, rowted, rowting."),
     ("The router and the routers.", "The rowter and the rowters."),
     ("ROUTE stays shouted-ish; Router starts a sentence.", "ROUTE stays shouted-ish; Rowter starts a sentence."),
