@@ -324,6 +324,30 @@ def test_misaki_takes_the_adjectives_sound_from_the_fix():
     assert "lˈIv" in phonemes and "lˈɪv" not in phonemes
 
 
+@pytest.mark.parametrize("line, said", [
+    ("Two deep dives.", "Two deep [dives](/dˈIvz/)."),
+    ("A deep-dive on it.", "A deep-[dive](/dˈIv/) on it."),
+    ("Dive in; he dived; diving deep.", "[Dive](/dˈIv/) in; he [dived](/dˈIvd/); [diving](/dˈIvɪŋ/) deep."),
+    ("Divers and diversity stay.", "Divers and diversity stay."),
+])
+def test_kokoro_fixes_say_dive_with_the_long_i(line, said):
+    from slidecast.tts import KOKORO_FIXES
+
+    assert apply_phonetic(line, KOKORO_FIXES) == said
+
+
+def test_misaki_says_dives_with_the_long_i_after_the_fix():
+    en = pytest.importorskip("misaki.en")
+    from slidecast.tts import KOKORO_FIXES
+
+    g2p = en.G2P(trf=False, british=False)
+    # unfixed, misaki gives "dˈIvˌiz" (a stray "ee" ending: "divees") for the plural
+    phonemes, _ = g2p(apply_phonetic("We ran two deep dives.", KOKORO_FIXES))
+    assert "dˈIvz" in phonemes and "ˌiz" not in phonemes, phonemes
+    phonemes, _ = g2p(apply_phonetic("A deep-dive on it.", KOKORO_FIXES))
+    assert "dˈIv" in phonemes and "dˈiv" not in phonemes, phonemes
+
+
 def test_mlx_kokoro_explains_how_to_install_it(monkeypatch, tmp_path):
     import builtins
 

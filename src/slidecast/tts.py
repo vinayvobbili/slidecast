@@ -75,6 +75,11 @@ KOKORO_FIXES: Dict[str, str] = {
     r"running it)\s+)(?P<w>live)\b": r"\g<pre>" + _LYVE,
     r"(?i)(?<!\[)\b(?P<w>live)(?=\s+(?:runs?|tests?|systems?|data|demos?|traffic|calls?|customers?|users?|"
     r"environments?|incidents?|alerts?|feeds?|sites?|versions?|coding|streams?|events?)\b)": _LYVE,
+    # "dive" with the long I (rhymes with "hive"), as in "deep dives"; Kokoro says "DEE-vees" for the plural
+    r"(?i)(?<![\[\w])(?P<w>dives)\b": r"[\g<w>](/dˈIvz/)",
+    r"(?i)(?<![\[\w])(?P<w>dive)\b": r"[\g<w>](/dˈIv/)",
+    r"(?i)(?<![\[\w])(?P<w>dived)\b": r"[\g<w>](/dˈIvd/)",
+    r"(?i)(?<![\[\w])(?P<w>diving)\b": r"[\g<w>](/dˈIvɪŋ/)",
     # Names said as words, which Kokoro would spell out letter by letter
     r"(?i)\bJSON\b": "Jason",
     r"\bPyPI\b": "pie pee eye",
