@@ -186,7 +186,7 @@ class Reel:
     ) -> Path:
         """Render the whole reel to ``out_path`` (an .mp4). Returns the path.
 
-        If ``make_poster`` is set, also writes ``<stem>_poster.jpg`` next to it.
+        If ``make_poster`` is set, also writes ``<stem>_poster.jpg`` next to it and embeds it as the MP4's cover art.
 
         When any of ``fade_in`` / ``fade_out`` / ``end_hold`` is non-zero, the
         concatenated reel is run through :func:`video.master` for a finished cut —
@@ -322,8 +322,9 @@ class Reel:
                 _video.concat(segments, out_path, ffmpeg=ffmpeg)
             if make_poster:
                 # Past the fade-in, or the poster is a dark frame.
-                _video.poster(out_path, out_path.with_name(out_path.stem + "_poster.jpg"),
-                              at=fade_in + 0.2 if fade_in > 0 else 0.0, ffmpeg=ffmpeg)
+                image = _video.poster(out_path, out_path.with_name(out_path.stem + "_poster.jpg"),
+                                      at=fade_in + 0.2 if fade_in > 0 else 0.0, ffmpeg=ffmpeg)
+                _video.embed_poster(out_path, image, ffmpeg=ffmpeg)  # the file's own thumbnail
         finally:
             if cache is not None:
                 cache.prune()

@@ -4,6 +4,7 @@ import pytest
 
 from slidecast import (Music, Sting, build_clip_segment, build_segment, concat, master,
                        mix_music, poster)
+from slidecast.video import embed_poster
 from slidecast.video import DUCK
 from tests.fakes import FakeRunner
 
@@ -26,7 +27,9 @@ def test_master_without_music_fades_and_holds():
     fc = _master_filters(cmd)
     # total = 10 + 2.5 = 12.5; fade-out starts at 12.5 - 1.2 = 11.3
     assert "tpad=stop_mode=clone:stop_duration=2.500" in fc
-    assert "fade=t=in:st=0:d=0.800" in fc
+    # the picture rises from a dimmed first frame, never from pure black
+    assert "eq=contrast='0.4+0.60*min(t/0.800,1)':saturation='0.4+0.60*min(t/0.800,1)':eval=frame" in fc
+    assert "fade=t=in" not in fc
     assert "fade=t=out:st=11.300:d=1.200" in fc
     assert "apad=pad_dur=2.500" in fc
     assert "amix" not in fc  # no music -> no mixer
@@ -298,3 +301,15 @@ def test_segments_can_hold_silent_before_the_narration():
     graph = _filter_complex(runner.commands[1])
     assert "tpad=start_mode=clone:start_duration=1.500" in graph
     assert "[1:a]adelay=1500:all=1,apad[a]" in graph
+
+
+def test_embed_poster_attaches_cover_and_keeps_video_first(tmp_path):
+    video = tmp_path / "v.mp4"
+    video.write_bytes(b"x")
+    runner = FakeRunner(touch_output=True)
+    embed_poster(video, tmp_path / "p.jpg", ffmpeg="ff", runner=runner)
+    cmd = runner.commands[0]
+    maps = [cmd[i + 1] for i, a in enumerate(cmd) if a == "-map"]
+    assert maps == ["0", "1"]
+    assert cmd[cmd.index("-disposition:v:1") + 1] == "attached_pic"
+    assert video.read_bytes() == b"\x00\x00" and not (tmp_path / "v_cover.mp4").exists()

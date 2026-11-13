@@ -263,3 +263,24 @@ def test_composed_bed_and_stings_mix_into_a_reel(tmp_path):
     assert decoded.returncode == 0 and not decoded.stderr.strip()
     # Music under the whole reel: the opening second, before the voice, isn't silent.
     assert _level(out, 0.2, 0.9, "anull") > -50
+
+
+def test_poster_is_embedded_as_cover_and_the_first_frame_is_not_black(tmp_path):
+    png = _make(["-f", "lavfi", "-i", "color=c=orange:s=160x120", "-frames:v", "1"], tmp_path / "s.png")
+    reel = Reel(width=160, height=120, fps=25, tts=ToneTTS(), renderer=PngRenderer(png))
+    reel.add("<h1>one</h1>", "first", tail_pad=0.5)
+    out = reel.render(tmp_path / "out.mp4", ffmpeg=FFMPEG, workdir=tmp_path / "work",
+                      fade_in=0.6, make_poster=True)
+
+    info = subprocess.run([FFMPEG, "-i", str(out)], capture_output=True, text=True).stderr
+    assert "attached pic" in info
+    streams = [ln for ln in info.splitlines() if "Stream #0" in ln]
+    assert "h264" in streams[0] and "mjpeg" in streams[-1]  # the real video stays first
+    decoded = subprocess.run([FFMPEG, "-v", "error", "-i", str(out), "-f", "null", "-"],
+                             capture_output=True, text=True)
+    assert decoded.returncode == 0 and not decoded.stderr.strip()
+    # Frame 0 is dimmed, not black.
+    frame = _make(["-i", str(out), "-map", "0:v:0", "-frames:v", "1"], tmp_path / "f0.png")
+    res = subprocess.run([FFMPEG, "-i", str(frame), "-vf", "scale=1:1,format=gray", "-f", "rawvideo", "-"],
+                         capture_output=True)
+    assert res.stdout[0] > 40

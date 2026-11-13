@@ -422,7 +422,9 @@ def master(
     if end_hold > 0:
         vchain.append(f"tpad=stop_mode=clone:stop_duration={end_hold:.3f}")
     if fade_in > 0:
-        vchain.append(f"fade=t=in:st=0:d={fade_in:.3f}")
+        # Rise from a dimmed first frame, not black: players and Finder use frame 0 as the thumbnail.
+        ramp = f"{FADE_IN_FLOOR}+{1 - FADE_IN_FLOOR:.2f}*min(t/{fade_in:.3f},1)"
+        vchain.append(f"eq=contrast='{ramp}':saturation='{ramp}':eval=frame")
     if fade_out > 0:
         vchain.append(f"fade=t=out:st={max(total - fade_out, 0.0):.3f}:d={fade_out:.3f}")
     vchain.append("format=yuv420p")
@@ -503,6 +505,36 @@ def mix_music(
     ]
     runner(cmd, check=True)
     return out
+
+
+FADE_IN_FLOOR = 0.4  # brightness of the first frame when the video fades in
+
+
+def embed_poster(
+    video: Path,
+    image: Path,
+    *,
+    ffmpeg: Optional[str] = None,
+    runner=None,
+) -> Path:
+    """Attach ``image`` to the MP4 as its cover art (an attached_pic stream), in place.
+
+    The video and audio are copied untouched and stay first; Finder and QuickTime show the
+    cover as the file's thumbnail instead of frame 0.
+    """
+    ffmpeg = ffmpeg or find_ffmpeg()
+    runner = runner or subprocess.run
+    tmp = video.with_name(video.stem + "_cover" + video.suffix)
+    runner(
+        [
+            ffmpeg, "-y", "-loglevel", "error", "-i", str(video), "-i", str(image),
+            "-map", "0", "-map", "1", "-c", "copy", "-c:v:1", "mjpeg",
+            "-disposition:v:1", "attached_pic", "-movflags", "+faststart", str(tmp),
+        ],
+        check=True,
+    )
+    os.replace(tmp, video)
+    return video
 
 
 def poster(
