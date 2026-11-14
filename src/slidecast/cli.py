@@ -2,6 +2,7 @@
 
     slidecast render reel.yaml -o out.mp4 --poster
     slidecast compose -o audio/ --length 95 --bpm 84 --seed 7
+    slidecast youtube out.mp4
 
 A spec is YAML or JSON::
 
@@ -167,7 +168,20 @@ def main(argv=None) -> int:
                    help="exit 1 when a change comes less than this long after the voice")
     k.add_argument("--levels", type=float, nargs=2, metavar=("START", "END"),
                    help="print the voice-band level of each 50 ms frame between these seconds, instead of checking")
+    y = sub.add_parser("youtube", help="make an upload copy at 2x size (a 1280x800 reel becomes 2560x1600), "
+                                       "which YouTube keeps sharper")
+    y.add_argument("video", type=Path, help="a rendered .mp4")
+    y.add_argument("-o", "--out", type=Path, default=None, help="output path (default: <name>-youtube.mp4)")
+    y.add_argument("--scale", type=int, default=2, metavar="N", help="size multiple (default 2)")
     args = parser.parse_args(argv)
+
+    if args.cmd == "youtube":
+        if args.scale < 1:
+            parser.error("--scale must be at least 1")
+        from .video import youtube_copy
+        out = youtube_copy(args.video, args.out, scale=args.scale)
+        print(f"✓ wrote {out} ({out.stat().st_size / 1e6:.1f} MB)")
+        return 0
 
     if args.cmd == "check" and args.levels:
         from .check import level_rows, speech, speech_levels

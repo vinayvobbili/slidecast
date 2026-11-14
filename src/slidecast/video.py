@@ -202,6 +202,46 @@ def concat(
     return out
 
 
+def youtube_path(src: Path) -> Path:
+    """``name.mp4`` -> ``name-youtube.mp4``, next to it."""
+    src = Path(src)
+    return src.with_name(f"{src.stem}-youtube.mp4")
+
+
+def youtube_copy(
+    src: Path,
+    out: Optional[Path] = None,
+    *,
+    scale: int = 2,
+    fps: int = 30,
+    ffmpeg: Optional[str] = None,
+    runner=None,
+) -> Path:
+    """Re-encode ``src`` for upload: ``scale`` times the size (aspect kept), 30 fps, high quality.
+
+    YouTube sorts an upload into a tier by its height and re-encodes it. A 1280x800 file lands in the
+    720p H.264 tier, which blurs small UI text; 2560x1600 lands in 1440p, which gets VP9 and several times
+    the bitrate. Lanczos scaling, CRF 16 and the doubled frame rate (fps=30 repeats frames of a 15 fps
+    source) give the re-encode a clean source. Writes ``<stem>-youtube.mp4`` unless ``out`` is given.
+    """
+    if scale < 1:
+        raise ValueError("scale must be at least 1")
+    ffmpeg = ffmpeg or find_ffmpeg()
+    runner = runner or subprocess.run
+    out = Path(out) if out else youtube_path(src)
+    cmd: List[str] = [
+        ffmpeg, "-y", "-loglevel", "error", "-i", str(src),
+        "-map", "0:v:0", "-map", "0:a?",
+        "-vf", f"scale=iw*{scale}:ih*{scale}:flags=lanczos,fps={fps}",
+        "-c:v", "libx264", "-crf", "16", "-preset", "slow", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-b:a", "192k",
+        "-movflags", "+faststart",
+        str(out),
+    ]
+    runner(cmd, check=True)
+    return out
+
+
 def _ffprobe_for(ffmpeg: str) -> Optional[str]:
     """Best-effort path to an ffprobe that matches ``ffmpeg`` (or one on PATH)."""
     cand = re.sub(r"ffmpeg(\.exe)?$", lambda m: "ffprobe" + (m.group(1) or ""), ffmpeg)

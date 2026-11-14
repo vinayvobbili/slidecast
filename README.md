@@ -171,7 +171,20 @@ reel.render("out.mp4")                                                       # c
 slidecast render reel.yaml -o out.mp4 --poster
 slidecast check out.mp4 [--min-gap 0.6]   # exit 1: black in the last 0.5 s, a first card over 4 s before any voice,
                                           # or (with --min-gap) a slide change that cuts the voice off
+slidecast youtube out.mp4 [-o out-youtube.mp4]   # an upload copy at 2x size, 30 fps, CRF 16
 ```
+
+YouTube re-encodes every upload, and a 1280x800 file lands in its 720p tier, which blurs small text. A 2x copy
+(2560x1600) lands in 1440p, which gets VP9 and several times the bitrate. `Reel.render(..., youtube=True)` writes
+the same `<name>-youtube.mp4` beside the reel. It scales the finished video with Lanczos, so it can't add detail
+the reel doesn't have; for the sharpest text, design the slides at 2x too.
+
+### Line breaks
+
+Every slide gets a base stylesheet ahead of its own CSS: `text-wrap: pretty` on paragraphs and list items (no
+paragraph ends on a lone word) and `balance` on headings. A title card, the tagline and the closing reprise put each
+sentence of a plain-text `<p>` on its own line (`slidecast.typeset.sentences_on_lines` does the same for any card).
+With the Playwright renderer, `render` warns about any text block whose last line is a single word, as laid out.
 
 ```yaml
 width: 1280

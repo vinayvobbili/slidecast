@@ -162,6 +162,31 @@ def test_main_compose_passes_its_options(monkeypatch, tmp_path, capsys):
     assert "music_bed.wav (0.5 s)" in capsys.readouterr().out
 
 
+def test_main_youtube_writes_the_upload_copy(tmp_path, monkeypatch, capsys):
+    from slidecast import video
+
+    seen = []
+
+    def fake(src, out, *, scale):
+        seen.append((src, out, scale))
+        target = out or video.youtube_path(src)
+        target.write_bytes(b"x")
+        return target
+
+    monkeypatch.setattr(video, "youtube_copy", fake)
+    assert main(["youtube", str(tmp_path / "demo.mp4")]) == 0
+    assert seen == [(tmp_path / "demo.mp4", None, 2)]
+    assert "demo-youtube.mp4" in capsys.readouterr().out
+
+
+def test_main_youtube_rejects_a_zero_scale(capsys):
+    import pytest
+
+    with pytest.raises(SystemExit):
+        main(["youtube", "x.mp4", "--scale", "0"])
+    assert "--scale" in capsys.readouterr().err
+
+
 def test_main_compose_rejects_a_zero_length(capsys):
     import pytest
 

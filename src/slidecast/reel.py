@@ -15,6 +15,7 @@ import contextlib
 import math
 import shutil
 import tempfile
+import warnings
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable, List, Optional, Union
@@ -26,6 +27,7 @@ from .cache import Cache
 from .ffmpeg import find_ffmpeg
 from . import check as _check
 from . import qr as _qr
+from . import typeset as _typeset
 from .models import Animation, Clip, Music, Segment, Slide, Sting, Theme
 from .render import PlaywrightRenderer, Renderer
 from .tts import SilentTTS, TTSProvider
@@ -145,6 +147,7 @@ class Reel:
             raise ValueError("title_card must be the first slide")
         if seconds <= 0:
             raise ValueError("seconds must be positive")
+        html = _typeset.sentences_on_lines(html)  # a sentence of the subtitle never wraps onto a line of its own
         self._title = html
         return self.add(html, min_duration=seconds)
 
@@ -156,7 +159,7 @@ class Reel:
         if not text.strip():
             raise ValueError("tagline text must be non-empty")
         self._tagline = text
-        html = _TAGLINE_HTML.format(text=text, bg=self.theme.background, accent=self.theme.accent_css())
+        html = _TAGLINE_HTML.format(text=_typeset.block_sentences(text), bg=self.theme.background, accent=self.theme.accent_css())
         return self.add(html, text, tail_pad=tail_pad)
 
     def problem(self, html: str, narration: str = "", *, seconds: float, tail_pad: float = 0.4) -> Animation:
@@ -171,12 +174,20 @@ class Reel:
         html = self._title
         if self._tagline:
             tag = (f'<p class="tagline" style="position:relative;margin:30px 0 0;font:700 40px/1.3 system-ui,'
-                   f'sans-serif;text-align:center;{self.theme.accent_css()}">{self._tagline}</p>')
+                   f'sans-serif;text-align:center;{self.theme.accent_css()}">'
+                   f'{_typeset.block_sentences(self._tagline)}</p>')
             html = html.replace("</body>", tag + "</body>", 1) if "</body>" in html else html + tag
         if self.closing_qr:
             tile = _qr.qr_tile(self.closing_qr, self.closing_qr_label, body_color=self.theme.body_color)
             html = html.replace("</body>", tile + "</body>", 1) if "</body>" in html else html + tile
         return Slide(html=html, min_duration=self.closing_seconds)
+
+    def _warn_lone_words(self, renderer, html: str, index: int) -> None:
+        """Warn about each text block of slide ``index`` whose last line is one word (renderers that can measure)."""
+        if not hasattr(renderer, "lone_words"):
+            return
+        for text in renderer.lone_words(_typeset.polish(html), width=self.width, height=self.height):
+            warnings.warn(f"slide {index + 1}: last line is a single word: {text[:60]!r}", stacklevel=2)
 
     def _animation_clip(self, animation: Animation, renderer, work: Path, index: int, ffmpeg: str) -> Clip:
         """Render ``animation`` to a silent clip in ``work`` and return it as a :class:`Clip`."""
@@ -184,7 +195,7 @@ class Reel:
             raise TypeError(f"{type(renderer).__name__} can't render animations: it needs an animate() method "
                             "(PlaywrightRenderer has one)")
         frames = work / f"a{index:03d}_frames"
-        renderer.animate(animation.html, frames, width=self.width, height=self.height,
+        renderer.animate(_typeset.polish(animation.html), frames, width=self.width, height=self.height,
                          fps=self.fps, seconds=animation.seconds)
         video = work / f"a{index:03d}.mp4"
         _video.encode_frames(frames, video, fps=self.fps, ffmpeg=ffmpeg)
@@ -279,10 +290,12 @@ class Reel:
         cache=None,
         on_cached: Optional[ProgressHook] = None,
         verify: Optional[bool] = None,
+        youtube: bool = False,
     ) -> Path:
         """Render the whole reel to ``out_path`` (an .mp4). Returns the path.
 
         If ``make_poster`` is set, also writes ``<stem>_poster.jpg`` next to it and embeds it as the MP4's cover art.
+        If ``youtube`` is set, also writes ``<stem>-youtube.mp4``, a 2x copy for upload (see :func:`video.youtube_copy`).
 
         When any of ``fade_in`` / ``fade_out`` / ``end_hold`` is non-zero, the
         concatenated reel is run through :func:`video.master` for a finished cut —
@@ -383,7 +396,8 @@ class Reel:
                                                       delay, duration + delay, ffmpeg)
                         continue
                     png = work / f"s{i:03d}.png"
-                    r.screenshot(slide.html, png, width=self.width, height=self.height)
+                    r.screenshot(_typeset.polish(slide.html), png, width=self.width, height=self.height)
+                    self._warn_lone_words(r, slide.html, i)
                     duration = self._segment_duration(slide, audio, cache)
                     if duration is not None:
                         duration = _on_frames(duration + delay, self.fps)
@@ -436,6 +450,8 @@ class Reel:
                 image = _video.poster(out_path, out_path.with_name(out_path.stem + "_poster.jpg"),
                                       at=fade_in + 0.2 if fade_in > 0 else 0.0, ffmpeg=ffmpeg)
                 _video.embed_poster(out_path, image, ffmpeg=ffmpeg)  # the file's own thumbnail
+            if youtube:
+                _video.youtube_copy(out_path, ffmpeg=ffmpeg)
         finally:
             if cache is not None:
                 cache.prune()

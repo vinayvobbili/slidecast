@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from slidecast import (Music, Sting, build_clip_segment, build_segment, concat, master,
-                       mix_music, poster)
+                       mix_music, poster, youtube_copy)
 from slidecast.video import embed_poster
 from slidecast.video import DUCK
 from tests.fakes import FakeRunner
@@ -129,6 +129,30 @@ def test_concat_writes_listfile_copies_video_and_encodes_audio_once(tmp_path):
 def test_concat_rejects_empty():
     with pytest.raises(ValueError):
         concat([], Path("out.mp4"), ffmpeg="ff", runner=FakeRunner())
+
+
+def test_youtube_copy_doubles_the_size_and_encodes_for_upload():
+    runner = FakeRunner()
+    out = youtube_copy(Path("dir/demo.mp4"), ffmpeg="ff", runner=runner)
+    cmd = runner.commands[0]
+    assert out == Path("dir/demo-youtube.mp4") and cmd[-1] == "dir/demo-youtube.mp4"
+    assert cmd[cmd.index("-vf") + 1] == "scale=iw*2:ih*2:flags=lanczos,fps=30"
+    assert cmd[cmd.index("-crf") + 1] == "16" and cmd[cmd.index("-preset") + 1] == "slow"
+    assert cmd[cmd.index("-pix_fmt") + 1] == "yuv420p"
+    assert cmd[cmd.index("-b:a") + 1] == "192k"
+    assert cmd[cmd.index("-movflags") + 1] == "+faststart"
+
+
+def test_youtube_copy_takes_an_output_path_and_a_scale():
+    runner = FakeRunner()
+    out = youtube_copy(Path("a.mp4"), Path("b.mp4"), scale=3, ffmpeg="ff", runner=runner)
+    cmd = runner.commands[0]
+    assert out == Path("b.mp4") and "scale=iw*3:ih*3" in cmd[cmd.index("-vf") + 1]
+
+
+def test_youtube_copy_rejects_a_scale_below_one():
+    with pytest.raises(ValueError):
+        youtube_copy(Path("a.mp4"), scale=0, ffmpeg="ff", runner=FakeRunner())
 
 
 def test_poster_grabs_one_frame():

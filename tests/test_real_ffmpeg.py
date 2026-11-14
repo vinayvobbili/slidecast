@@ -61,6 +61,19 @@ def test_slide_and_clip_concat_into_one_reel(tmp_path):
     assert decoded.returncode == 0 and not decoded.stderr.strip()
 
 
+def test_youtube_copy_is_twice_the_size_at_30_fps(tmp_path):
+    from slidecast import youtube_copy
+
+    src = _make(["-f", "lavfi", "-i", "testsrc=s=320x200:r=15:d=1", "-f", "lavfi", "-i", "sine=d=1",
+                 "-c:v", "libx264", "-pix_fmt", "yuv420p", "-shortest"], tmp_path / "demo.mp4")
+    out = youtube_copy(src, ffmpeg=FFMPEG)
+
+    assert out == tmp_path / "demo-youtube.mp4"
+    info = subprocess.run([FFMPEG, "-i", str(out)], capture_output=True, text=True).stderr
+    assert "640x400" in info and "30 fps" in info and "aac" in info
+    assert probe_duration(out, ffmpeg=FFMPEG) == pytest.approx(1.0, abs=0.15)
+
+
 class ToneTTS:
     """'Speaks' every line as a 3 kHz mono tone at 24 kHz, like Kokoro's WAVs: 1 s, or ``seconds``."""
 

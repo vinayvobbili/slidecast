@@ -68,6 +68,7 @@ from .video import (
     mix_music,
     poster,
     probe_duration,
+    youtube_copy,
 )
 
 __version__ = "0.5.0"
@@ -105,6 +106,7 @@ __all__ = [
     "mix_music",
     "poster",
     "probe_duration",
+    "youtube_copy",
     "find_ffmpeg",
     "FFmpegNotFound",
     "__version__",

@@ -25,6 +25,8 @@ import tempfile
 from pathlib import Path
 from typing import Optional, Protocol, Sequence, runtime_checkable
 
+from .typeset import LONE_WORD_JS
+
 
 @runtime_checkable
 class Renderer(Protocol):
@@ -102,6 +104,17 @@ class PlaywrightRenderer:
         finally:
             page.context.close()
 
+
+    def lone_words(self, html: str, *, width: int, height: int) -> list:
+        """The text of each block in ``html`` whose last line is a single word, as laid out at this size."""
+        if self._browser is None:
+            raise RuntimeError("PlaywrightRenderer must be used as a context manager")
+        page = self._browser.new_context(viewport={"width": width, "height": height}).new_page()
+        try:
+            page.set_content(html, wait_until=self.wait_until)
+            return page.evaluate(LONE_WORD_JS)
+        finally:
+            page.context.close()
 
     def animate(self, html: str, out_dir: Path, *, width: int, height: int, fps: int, seconds: float) -> int:
         """Write the page's animation as ``f00000.png``, ``f00001.png``... in ``out_dir``; return the frame count.
