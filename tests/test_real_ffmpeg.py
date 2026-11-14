@@ -74,6 +74,28 @@ def test_youtube_copy_is_twice_the_size_at_30_fps(tmp_path):
     assert probe_duration(out, ffmpeg=FFMPEG) == pytest.approx(1.0, abs=0.15)
 
 
+@pytest.mark.parametrize("image", ["good", "unreadable"])
+def test_a_still_segment_ends_on_time_even_when_the_image_is_unreadable(tmp_path, image):
+    """An unreadable image (a stub PNG) yields no video frames; the unbounded -af apad then wrote silence forever."""
+    from slidecast import build_segment
+
+    png = tmp_path / "s001.png"
+    if image == "good":
+        _make(["-f", "lavfi", "-i", "color=c=navy:s=64x64", "-frames:v", "1"], png)
+    else:
+        png.write_bytes(b"\x89PNG")
+    wav = _make(["-f", "lavfi", "-i", "sine=f=440:d=0.5"], tmp_path / "s001.wav")
+    out = tmp_path / "s001.mkv"
+    try:
+        build_segment(png, wav, out, width=64, height=64, fps=25, duration=1.0, ffmpeg=FFMPEG,
+                      runner=lambda cmd, **kw: subprocess.run(cmd, **{**kw, "timeout": 30}))
+    except subprocess.CalledProcessError:
+        assert image == "unreadable"  # it may fail, but it must end
+    assert not out.exists() or out.stat().st_size < 5_000_000
+    if image == "good":
+        assert probe_duration(out, ffmpeg=FFMPEG) == pytest.approx(1.0, abs=0.1)
+
+
 class ToneTTS:
     """'Speaks' every line as a 3 kHz mono tone at 24 kHz, like Kokoro's WAVs: 1 s, or ``seconds``."""
 

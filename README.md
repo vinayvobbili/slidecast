@@ -218,7 +218,7 @@ and encoded again. Entries are keyed on the text, voice and settings, and on the
 to anything that shows or sounds different is picked up.
 
 The cache lives in `~/.cache/slidecast` (`$XDG_CACHE_HOME/slidecast` if set), or wherever `SLIDECAST_CACHE`
-points, and is pruned to 5 GB, least recently used first. Set `SLIDECAST_CACHE_MAX` to change that cap: a byte
+points, and is pruned to 2 GB, least recently used first, at the start and the end of every render. Set `SLIDECAST_CACHE_MAX` to change that cap: a byte
 count, or a whole number with a `G` or `M` suffix, such as `SLIDECAST_CACHE_MAX=12G` or `SLIDECAST_CACHE_MAX=800M`.
 A value it can't read stops the render with an error. Raise the cap when several long videos should keep their
 clips, so editing one card doesn't re-render all of it. To turn it off, set `SLIDECAST_CACHE=off`, pass

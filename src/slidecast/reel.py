@@ -334,6 +334,8 @@ class Reel:
             _sound.require_numpy()  # fail now, not after every slide is built
 
         cache = Cache.of(cache)
+        if cache is not None:
+            cache.prune()  # first, so an oversized cache from earlier runs shrinks before this render adds to it
         keep_work = workdir is not None
         work = Path(workdir) if workdir else Path(tempfile.mkdtemp(prefix="slidecast_"))
         work.mkdir(parents=True, exist_ok=True)

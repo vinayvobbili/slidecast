@@ -83,7 +83,8 @@ def test_build_segment_with_known_duration_pads_to_target():
     cmd = runner.commands[0]
     assert cmd[0] == "ff"
     assert "-t" in cmd and cmd[cmd.index("-t") + 1] == "4.200"
-    assert "-af" in cmd and cmd[cmd.index("-af") + 1] == "apad"
+    assert "-af" in cmd and cmd[cmd.index("-af") + 1] == "apad=whole_dur=4.200"
+    assert cmd[cmd.index("-frames:v") + 1] == "106"  # 4.2 s at 25 fps, plus one
     assert "-shortest" not in cmd
     assert "scale=1280:720" in cmd
     assert cmd[cmd.index("-r") + 1] == "25"
@@ -170,7 +171,7 @@ def test_build_clip_segment_letterboxes_holds_and_replaces_audio():
     graph = _filter_complex(cmd)
     assert "force_original_aspect_ratio=decrease" in graph and "pad=1280:720" in graph
     assert "tpad=stop_mode=clone:stop_duration=2.000" in graph
-    assert "[1:a]apad[a]" in graph  # narration, not the clip's own audio
+    assert "[1:a]apad=whole_dur=9.500[a]" in graph  # narration, not the clip's own audio
     assert cmd[cmd.index("-t") + 1] == "9.500"
     # Same encoder settings as build_segment, so slides and clips concat with -c copy.
     assert cmd[cmd.index("-c:v") + 1] == "libx264" and "stillimage" in cmd
@@ -323,14 +324,14 @@ def test_segments_can_hold_silent_before_the_narration():
     build_segment(Path("img.png"), Path("a.wav"), Path("out.mp4"),
                   width=640, height=360, duration=4.0, delay=1.8, ffmpeg="ff", runner=runner)
     cmd = runner.commands[0]
-    assert cmd[cmd.index("-af") + 1] == "adelay=1800:all=1,apad"
+    assert cmd[cmd.index("-af") + 1] == "adelay=1800:all=1,apad=whole_dur=4.000"
     assert cmd[cmd.index("-t") + 1] == "4.000"
 
     build_clip_segment(Path("c.mp4"), Path("a.wav"), Path("o.mp4"), width=640, height=360,
                        duration=5.0, hold=1.0, delay=1.5, ffmpeg="ff", runner=runner)
     graph = _filter_complex(runner.commands[1])
     assert "tpad=start_mode=clone:start_duration=1.500" in graph
-    assert "[1:a]adelay=1500:all=1,apad[a]" in graph
+    assert "[1:a]adelay=1500:all=1,apad=whole_dur=" in graph
 
 
 def test_embed_poster_attaches_cover_and_keeps_video_first(tmp_path):

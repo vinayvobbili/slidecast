@@ -45,7 +45,7 @@ ffmpeg steps (injectable runner, for direct use/testing):
     find_ffmpeg() -> path   (PATH, $SLIDECAST_FFMPEG, or imageio-ffmpeg)
 """
 
-from .ffmpeg import FFmpegNotFound, find_ffmpeg
+from .ffmpeg import FFmpegNotFound, FFmpegTimeout, find_ffmpeg
 from .models import Animation, Clip, Music, Segment, Slide, Sting, Theme
 from .reel import Reel, ReelCheckError
 from .render import ChromeBinaryRenderer, PlaywrightRenderer, Renderer
@@ -79,6 +79,7 @@ __all__ = [
     "ChromeBinaryRenderer",
     "Clip",
     "FFmpegNotFound",
+    "FFmpegTimeout",
     "KokoroTTS",
     "MLXKokoroTTS",
     "MacSayTTS",

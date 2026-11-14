@@ -145,7 +145,7 @@ def test_music_alone_is_mixed_with_the_video_copied(monkeypatch, tmp_path):
     reel.render(tmp_path / "out.mp4", ffmpeg="ff")
 
     seg, cat, mix = runner.commands
-    assert "-af" in seg and seg[seg.index("-af") + 1] == "apad"  # no intro -> no lead-in
+    assert "-af" in seg and seg[seg.index("-af") + 1] == "apad=whole_dur=1.000"  # no intro -> no lead-in
     assert "concat" in cat and cat[-1].endswith("_concat.mp4")
     assert mix[mix.index("-c:v") + 1] == "copy" and "bed.mp3" in mix
     fc = mix[mix.index("-filter_complex") + 1]
@@ -171,8 +171,8 @@ def test_intro_sets_the_lead_in_and_fades_go_through_master(monkeypatch, tmp_pat
 
     first, second = runner.commands[0], runner.commands[1]
     assert first[first.index("-t") + 1] == "3.000"  # 1.8 lead-in + 1.0 voice + 0.2 pad
-    assert first[first.index("-af") + 1] == "adelay=1800:all=1,apad"
-    assert second[second.index("-af") + 1] == "apad"  # only the first slide waits
+    assert first[first.index("-af") + 1] == "adelay=1800:all=1,apad=whole_dur=3.000"
+    assert second[second.index("-af") + 1].startswith("apad=whole_dur=")  # only the first slide waits
     (mix,) = _mix_commands(runner)
     assert mix[mix.index("-c:v") + 1] == "libx264"  # master re-encodes for the fade
     fc = mix[mix.index("-filter_complex") + 1]
@@ -254,7 +254,7 @@ def test_composed_intro_sets_the_default_lead_in(monkeypatch, tmp_path):
     reel.add("<h1>a</h1>", "hello")
     reel.render(tmp_path / "out.mp4", ffmpeg="ff")
     first = runner.commands[0]
-    assert first[first.index("-af") + 1] == "adelay=5100:all=1,apad"
+    assert first[first.index("-af") + 1] .startswith("adelay=5100:all=1,apad=whole_dur=")
 
 
 def test_compose_without_numpy_fails_before_any_slide_is_built(monkeypatch, tmp_path):

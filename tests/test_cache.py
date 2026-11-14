@@ -251,7 +251,7 @@ def test_parse_size_rejects_anything_else(text):
 
 def test_cap_defaults_to_five_gigabytes_when_unset_or_empty(monkeypatch):
     monkeypatch.delenv("SLIDECAST_CACHE_MAX", raising=False)
-    assert cache_mod.max_bytes_from_env() == cache_mod.MAX_BYTES == 5 * 1024 ** 3
+    assert cache_mod.max_bytes_from_env() == cache_mod.MAX_BYTES == 2 * 1024 ** 3
     assert cache_mod.max_bytes_from_env({"SLIDECAST_CACHE_MAX": "  "}) == cache_mod.MAX_BYTES
 
 
@@ -283,3 +283,29 @@ def test_prune_honours_the_env_cap(tmp_path, monkeypatch):
 
     monkeypatch.setenv("SLIDECAST_CACHE_MAX", "1G")
     assert Cache(tmp_path).prune() == 0
+
+
+def test_a_render_prunes_an_oversized_cache_before_it_starts(runner, tmp_path):
+    cache_dir = tmp_path / "cache"
+    seg = cache_dir / "segment"
+    seg.mkdir(parents=True)
+    old = seg / "oldentry.mkv"
+    old.write_bytes(b"x" * 1000)
+    stamp = time.time() - 5000
+    os.utime(old, (stamp, stamp))
+
+    seen = []
+    real_prune = Cache.prune
+
+    def spy(self):
+        seen.append(old.exists())  # what is on disk when each prune runs
+        return real_prune(self)
+
+    Cache.prune = spy
+    try:
+        _render(_reel(CountingTTS()), tmp_path, Cache(cache_dir, max_bytes=500))
+    finally:
+        Cache.prune = real_prune
+    assert seen[0] is True  # the first prune ran before the render built anything
+    assert not old.exists()
+    assert len(seen) == 2  # and again at the end

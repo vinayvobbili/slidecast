@@ -8,6 +8,7 @@ can assert the exact command line without invoking ffmpeg.
 
 from __future__ import annotations
 
+import math
 import os
 import re
 import shutil
@@ -16,7 +17,7 @@ import tempfile
 from dataclasses import replace
 from pathlib import Path
 
-from .ffmpeg import find_ffmpeg
+from .ffmpeg import find_ffmpeg, run_ffmpeg
 from .models import Music, Sting
 
 # How the bed ducks under the voice: past -34 dB of narration (0.02 linear) it is
@@ -77,8 +78,10 @@ def build_segment(
     ]
     afilter = [_adelay(delay)] if delay > 0 else []
     if duration is not None:
-        cmd += ["-t", f"{duration:.3f}"]
-        afilter.append("apad")
+        # Bounded three ways, because an unreadable image yields no video frames and an unbounded ``apad`` then
+        # writes silence until the disk is full: -t, a finite pad (whole_dur) and a cap on video frames.
+        cmd += ["-t", f"{duration:.3f}", "-frames:v", str(math.ceil(duration * fps) + 1)]
+        afilter.append(f"apad=whole_dur={duration:.3f}")
     else:
         cmd += ["-shortest"]
     if afilter:
@@ -90,7 +93,7 @@ def build_segment(
         *_segment_audio(out, audio_bitrate),
         str(out),
     ]
-    runner(cmd, check=True)
+    run_ffmpeg(runner, cmd, seconds=duration)
     return out
 
 
@@ -111,7 +114,7 @@ def encode_frames(
         "-c:v", "libx264", "-crf", "14", "-pix_fmt", "yuv420p",
         str(out),
     ]
-    runner(cmd, check=True)
+    run_ffmpeg(runner, cmd)
     return out
 
 
@@ -152,7 +155,7 @@ def build_clip_segment(
     if hold > 0:
         vchain.append(f"tpad=stop_mode=clone:stop_duration={hold:.3f}")
     vchain.append("format=yuv420p")
-    achain = ([_adelay(delay)] if delay > 0 else []) + ["apad"]
+    achain = ([_adelay(delay)] if delay > 0 else []) + [f"apad=whole_dur={duration:.3f}"]
     cmd: list[str] = [
         ffmpeg, "-y", "-loglevel", "error",
         "-i", str(clip),
@@ -165,7 +168,7 @@ def build_clip_segment(
         *_segment_audio(out, audio_bitrate),
         str(out),
     ]
-    runner(cmd, check=True)
+    run_ffmpeg(runner, cmd, seconds=duration)
     return out
 
 
@@ -186,16 +189,13 @@ def concat(
             f.write(f"file '{Path(seg).resolve()}'\n")
         list_path = Path(f.name)
     try:
-        runner(
-            [
-                ffmpeg, "-y", "-loglevel", "error",
-                "-f", "concat", "-safe", "0",
-                "-i", str(list_path),
-                "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart",
-                str(out),
-            ],
-            check=True,
-        )
+        run_ffmpeg(runner, [
+            ffmpeg, "-y", "-loglevel", "error",
+            "-f", "concat", "-safe", "0",
+            "-i", str(list_path),
+            "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart",
+            str(out),
+        ])
     finally:
         list_path.unlink(missing_ok=True)
     return out
@@ -237,7 +237,7 @@ def youtube_copy(
         "-movflags", "+faststart",
         str(out),
     ]
-    runner(cmd, check=True)
+    run_ffmpeg(runner, cmd)
     return out
 
 
@@ -249,6 +249,11 @@ def _ffprobe_for(ffmpeg: str) -> str | None:
     return shutil.which("ffprobe")
 
 
+def _probe_run(cmd: list[str], check: bool = False):
+    """A probe run with the minimum time limit; a probe reads a header, so a minute is already generous."""
+    return run_ffmpeg(subprocess.run, cmd, seconds=0, check=check,capture_output=True, text=True)
+
+
 def probe_duration(media: Path, *, ffmpeg: str | None = None) -> float:
     """Return the duration of ``media`` in seconds.
 
@@ -258,16 +263,15 @@ def probe_duration(media: Path, *, ffmpeg: str | None = None) -> float:
     ffmpeg = ffmpeg or find_ffmpeg()
     probe = _ffprobe_for(ffmpeg)
     if probe:
-        res = subprocess.run(
+        res = _probe_run(
             [probe, "-v", "error", "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1", str(media)],
-            capture_output=True, text=True,
         )
         try:
             return float(res.stdout.strip())
         except (ValueError, AttributeError):
             pass
-    res = subprocess.run([ffmpeg, "-i", str(media)], capture_output=True, text=True)
+    res = _probe_run([ffmpeg, "-i", str(media)], check=False)
     m = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", res.stderr)
     if m:
         h, mn, s = m.groups()
@@ -505,7 +509,7 @@ def master(
         "-movflags", "+faststart",
         str(out),
     ]
-    runner(cmd, check=True)
+    run_ffmpeg(runner, cmd, seconds=total)
     return out
 
 
@@ -563,7 +567,7 @@ def mix_music(
         "-movflags", "+faststart",
         str(out),
     ]
-    runner(cmd, check=True)
+    run_ffmpeg(runner, cmd, seconds=total_duration)
     return out
 
 
@@ -582,14 +586,11 @@ def embed_poster(
     ffmpeg = ffmpeg or find_ffmpeg()
     runner = runner or subprocess.run
     tmp = video.with_name(video.stem + "_cover" + video.suffix)
-    runner(
-        [
-            ffmpeg, "-y", "-loglevel", "error", "-i", str(video), "-i", str(image),
-            "-map", "0", "-map", "1", "-c", "copy", "-c:v:1", "mjpeg",
-            "-disposition:v:1", "attached_pic", "-movflags", "+faststart", str(tmp),
-        ],
-        check=True,
-    )
+    run_ffmpeg(runner, [
+        ffmpeg, "-y", "-loglevel", "error", "-i", str(video), "-i", str(image),
+        "-map", "0", "-map", "1", "-c", "copy", "-c:v:1", "mjpeg",
+        "-disposition:v:1", "attached_pic", "-movflags", "+faststart", str(tmp),
+    ])
     os.replace(tmp, video)
     return video
 
@@ -610,11 +611,8 @@ def poster(
     ffmpeg = ffmpeg or find_ffmpeg()
     runner = runner or subprocess.run
     seek = ["-ss", f"{at:.3f}"] if at > 0 else []
-    runner(
-        [
-            ffmpeg, "-y", "-loglevel", "error", *seek,
-            "-i", str(video), "-frames:v", "1", "-q:v", str(quality), str(out),
-        ],
-        check=True,
-    )
+    run_ffmpeg(runner, [
+        ffmpeg, "-y", "-loglevel", "error", *seek,
+        "-i", str(video), "-frames:v", "1", "-q:v", str(quality), str(out),
+    ], seconds=0)
     return out

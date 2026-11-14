@@ -3,7 +3,8 @@
 Speaking a line and encoding a segment are the slow steps of a render. Each result is stored under a hash of
 everything that can change it, so an edit to two slides in a long reel redoes two slides and reuses the rest.
 Entries are written to a temporary name and renamed into place, so an interrupted render never leaves a half-written
-entry, and the least recently used ones are pruned once the cache grows past its cap: :data:`MAX_BYTES` (5 GB) unless
+entry, and the least recently used ones are pruned, at the start and the end of every render, once the cache grows
+past its cap: :data:`MAX_BYTES` (2 GB) unless
 ``$SLIDECAST_CACHE_MAX`` says otherwise, as a byte count or a number with a ``G`` or ``M`` suffix (``12G``, ``800M``).
 
 The cache lives in ``$SLIDECAST_CACHE``, else ``$XDG_CACHE_HOME/slidecast``, else ``~/.cache/slidecast``. Set
@@ -25,8 +26,9 @@ from typing import Any
 # Bump to retire every entry when a change here or in video.py alters what a key doesn't see.
 VERSION = 1
 
-# Pruned down to this, least recently used first, at the end of a render. ``$SLIDECAST_CACHE_MAX`` overrides it.
-MAX_BYTES = 5 * 1024 ** 3
+# Pruned down to this, least recently used first, at the start and the end of a render. ``$SLIDECAST_CACHE_MAX``
+# overrides it.
+MAX_BYTES = 2 * 1024 ** 3
 
 # What the segment builders encode with. A change to video.py's settings goes here, so old segments aren't reused.
 ENCODE = "libx264/stillimage/yuv420p;pcm_s16le/48000/2;aac/192k"

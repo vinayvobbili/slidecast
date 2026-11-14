@@ -19,7 +19,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from .ffmpeg import find_ffmpeg
+from .ffmpeg import find_ffmpeg, run_ffmpeg
 
 HOP = 0.05          # seconds per level frame
 RATE = 8000         # the speech band fits well under 4 kHz
@@ -41,19 +41,20 @@ class Cut:
 
 def slide_changes(video: Path, *, ffmpeg: str | None = None, scene: float = SCENE) -> list[float]:
     ffmpeg = ffmpeg or find_ffmpeg()
-    res = subprocess.run([ffmpeg, "-v", "info", "-i", str(video), "-an", "-vf",
-                          f"select='gt(scene,{scene})',showinfo", "-f", "null", "-"],
-                         capture_output=True, text=True, check=True)
+    res = run_ffmpeg(subprocess.run, [ffmpeg, "-v", "info", "-i", str(video), "-an", "-vf",
+                                      f"select='gt(scene,{scene})',showinfo", "-f", "null", "-"],
+                     capture_output=True, text=True)
     return [float(t) for t in re.findall(r"pts_time:([0-9.]+)", res.stderr)]
 
 
 def speech_levels(video: Path, *, ffmpeg: str | None = None, band=BAND, hop: float = HOP) -> list[float]:
     """dB of the voice's band in each ``hop``-second frame."""
     ffmpeg = ffmpeg or find_ffmpeg()
-    res = subprocess.run([ffmpeg, "-v", "error", "-i", str(video), "-vn", "-af",
-                          f"highpass=f={band[0]},highpass=f={band[0]},lowpass=f={band[1]},lowpass=f={band[1]}",
-                          "-ac", "1", "-ar", str(RATE), "-f", "s16le", "-"],
-                         capture_output=True, check=True)
+    res = run_ffmpeg(subprocess.run, [ffmpeg, "-v", "error", "-i", str(video), "-vn", "-af",
+                                      f"highpass=f={band[0]},highpass=f={band[0]},"
+                                      f"lowpass=f={band[1]},lowpass=f={band[1]}",
+                                      "-ac", "1", "-ar", str(RATE), "-f", "s16le", "-"],
+                     capture_output=True)
     pcm = array("h")
     pcm.frombytes(res.stdout[: len(res.stdout) // 2 * 2])
     size = int(RATE * hop)
@@ -120,9 +121,9 @@ def black_tail(video: Path, *, ffmpeg: str | None = None, tail: float = TAIL) ->
     """True when the last ``tail`` seconds contain black frames (ffmpeg blackdetect). The threshold is near true
     black, so a dark brand card doesn't count."""
     ffmpeg = ffmpeg or find_ffmpeg()
-    res = subprocess.run([ffmpeg, "-v", "info", "-sseof", f"-{tail}", "-i", str(video), "-an", "-vf",
-                          "blackdetect=d=0.04:pic_th=0.98:pix_th=0.02", "-f", "null", "-"],
-                         capture_output=True, text=True, check=True)
+    res = run_ffmpeg(subprocess.run, [ffmpeg, "-v", "info", "-sseof", f"-{tail}", "-i", str(video), "-an", "-vf",
+                                      "blackdetect=d=0.04:pic_th=0.98:pix_th=0.02", "-f", "null", "-"],
+                     capture_output=True, text=True)
     return "black_start" in res.stderr
 
 
