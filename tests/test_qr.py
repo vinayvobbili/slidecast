@@ -19,7 +19,7 @@ def closing(**kwargs) -> str:
 def test_the_closing_card_carries_the_code_and_its_label():
     html = closing(closing_qr=URL, closing_qr_label="Get it on the Initech store")
     assert "<svg" in html and "Get it on the Initech store" in html
-    assert "right:24px" in html and "bottom:24px" in html  # bottom-right
+    assert "position:absolute" not in html and "white-space:nowrap" in html  # in the flow, label on one line
     assert html.index("<h1>Initech</h1>") < html.index('class="qr"')  # laid over the card, not replacing it
 
 
@@ -49,3 +49,30 @@ def test_a_scanner_reads_the_rendered_tile_back_as_the_url(tmp_path):
         r.screenshot(page, shot, width=1280, height=800)
     text, _points, _raw = cv2.QRCodeDetector().detectAndDecode(cv2.imread(str(shot)))
     assert text == URL
+
+
+@pytest.mark.skipif(not _chromium_works(), reason="needs Chromium")
+def test_the_tile_sits_centred_under_a_centred_stack_with_a_one_line_label_and_balanced_margins():
+    from playwright.sync_api import sync_playwright
+
+    stack = ("<h1 style='font-size:62px;margin:0'>Initech</h1><p style='font-size:27px;margin:20px 0 0'>Fills forms"
+             "</p><p style='font-size:40px;margin:30px 0 0'>Your paperwork shouldn't be a full-time job.</p>")
+    page = ("<!doctype html><body style='margin:0;width:1280px;height:800px;display:flex;flex-direction:column;"
+            f"align-items:center;justify-content:center;text-align:center'>{stack}"
+            f"{qr_tile(URL, 'Get it on the Chrome Web Store')}</body>")
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        tab = browser.new_page(viewport={"width": 1280, "height": 800})
+        tab.set_content(page)
+        box = tab.evaluate("""() => {
+            const r = e => e.getBoundingClientRect();
+            const qr = r(document.querySelector('.qr'));
+            const label = r(document.querySelector('.qr > div:last-child'));
+            return {top: r(document.querySelector('h1')).top, bottom: qr.bottom, x: qr.left + qr.width / 2,
+                    labelHeight: label.height, labelWidth: label.width, tileWidth: r(document.querySelector('.qr svg')).width};
+        }""")
+        browser.close()
+    assert abs(box["x"] - 640) < 2  # centred
+    assert box["labelHeight"] < 40  # one line
+    assert 190 <= box["tileWidth"] <= 210  # about 200 px
+    assert abs(box["top"] - (800 - box["bottom"])) < 4 and box["top"] > 40  # balanced, and not jammed at an edge

@@ -27,14 +27,17 @@ def qr_svg(url: str, size: int) -> str:
 
 
 def qr_tile(url: str, label: str = "", *, size: int = 200, body_color: str = "#f4f3ff") -> str:
-    """The QR tile and its label as HTML, fixed to the bottom-right of the card.
+    """The QR tile and its label as HTML, centred in the card's flow under whatever comes before it.
 
-    ``size`` is the code's width in pixels, about 160 to 200; ``label`` sits under it in ``body_color``.
+    On a card whose content is centred (a title card), adding the tile moves the whole stack up to make room, so
+    the card stays balanced top and bottom. ``size`` is the code's width in pixels, about 160 to 200; ``label`` sits
+    under it on one line, in ``body_color``.
     """
     if not url.strip():
         raise ValueError("closing_qr must be a URL")
-    caption = (f'<div style="margin-top:12px;font:600 20px/1.3 system-ui,sans-serif;color:{body_color};'
-               f'text-align:center;max-width:{size + 40}px">{escape(label)}</div>') if label.strip() else ""
-    return (f'<div class="qr" style="position:absolute;right:24px;bottom:24px;display:flex;flex-direction:column;'
-            f'align-items:center"><div style="background:#fff;border-radius:18px;padding:12px;line-height:0;'
-            f'box-shadow:0 0 40px rgb(176 92 246 / .45)">{qr_svg(url, size)}</div>{caption}</div>')
+    caption = (f'<div style="margin-top:14px;font:600 22px/1.3 system-ui,sans-serif;color:{body_color};'
+               f'text-align:center;white-space:nowrap">{escape(label)}</div>') if label.strip() else ""
+    return (f'<div class="qr" style="position:relative;margin:30px auto 0;width:max-content;display:flex;'
+            f'flex-direction:column;align-items:center"><div style="background:#fff;border-radius:18px;'
+            f'padding:12px;line-height:0;box-shadow:0 0 40px rgb(176 92 246 / .45)">{qr_svg(url, size)}</div>'
+            f'{caption}</div>')
