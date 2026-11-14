@@ -19,7 +19,7 @@ def closing(**kwargs) -> str:
 def test_the_closing_card_carries_the_code_and_its_label():
     html = closing(closing_qr=URL, closing_qr_label="Get it on the Initech store")
     assert "<svg" in html and "Get it on the Initech store" in html
-    assert "right:48px" in html and "bottom:40px" in html  # bottom-right
+    assert "right:32px" in html and "bottom:32px" in html  # bottom-right
     assert html.index("<h1>Initech</h1>") < html.index('class="qr"')  # laid over the card, not replacing it
 
 
