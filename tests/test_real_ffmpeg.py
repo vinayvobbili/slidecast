@@ -117,7 +117,7 @@ def test_rebuild_after_one_edit_reuses_the_cache(tmp_path, monkeypatch, capsys):
     _, cold = render(lines)
     assert len(built) == 5
     built.clear()
-    out, warm = render(lines[:2] + ["THREE"] + lines[3:])
+    out, warm = render([*lines[:2], "THREE", *lines[3:]])
     assert len(built) == 1
     assert probe_duration(out, ffmpeg=FFMPEG) == pytest.approx(15.0, abs=0.3)
     decoded = subprocess.run([FFMPEG, "-v", "error", "-i", str(out), "-f", "null", "-"],

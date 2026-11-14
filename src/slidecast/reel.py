@@ -16,18 +16,18 @@ import math
 import shutil
 import tempfile
 import warnings
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Callable, List, Optional, Union
 
 from . import cache as _cache
+from . import check as _check
+from . import qr as _qr
 from . import sound as _sound
+from . import typeset as _typeset
 from . import video as _video
 from .cache import Cache
 from .ffmpeg import find_ffmpeg
-from . import check as _check
-from . import qr as _qr
-from . import typeset as _typeset
 from .models import Animation, Clip, Music, Segment, Slide, Sting, Theme
 from .render import PlaywrightRenderer, Renderer
 from .tts import SilentTTS, TTSProvider
@@ -94,21 +94,21 @@ class Reel:
     height: int = 1080
     fps: int = 25
     tts: TTSProvider = field(default_factory=SilentTTS)
-    renderer: Optional[Renderer] = None
+    renderer: Renderer | None = None
     silent_slide_seconds: float = 3.0
-    music: Union[Music, str, Path, None] = None
-    intro: Union[Sting, str, Path, None] = None
-    outro: Union[Sting, str, Path, None] = None
-    lead_in: Optional[float] = None
-    loudness: Optional[float] = None
-    slides: List[Segment] = field(default_factory=list)
+    music: Music | str | Path | None = None
+    intro: Sting | str | Path | None = None
+    outro: Sting | str | Path | None = None
+    lead_in: float | None = None
+    loudness: float | None = None
+    slides: list[Segment] = field(default_factory=list)
     theme: Theme = field(default_factory=Theme)
     close_on_title: bool = True
     closing_seconds: float = 4.0
-    closing_qr: Optional[str] = None
+    closing_qr: str | None = None
     closing_qr_label: str = ""
-    _title: Optional[str] = field(default=None, init=False, repr=False)
-    _tagline: Optional[str] = field(default=None, init=False, repr=False)
+    _title: str | None = field(default=None, init=False, repr=False)
+    _tagline: str | None = field(default=None, init=False, repr=False)
 
     def add(self, html: str, narration: str = "", *,
             tail_pad: float = 0.0, min_duration: float = 0.0) -> Slide:
@@ -159,7 +159,8 @@ class Reel:
         if not text.strip():
             raise ValueError("tagline text must be non-empty")
         self._tagline = text
-        html = _TAGLINE_HTML.format(text=_typeset.block_sentences(text), bg=self.theme.background, accent=self.theme.accent_css())
+        html = _TAGLINE_HTML.format(text=_typeset.block_sentences(text), bg=self.theme.background,
+                                    accent=self.theme.accent_css())
         return self.add(html, text, tail_pad=tail_pad)
 
     def problem(self, html: str, narration: str = "", *, seconds: float, tail_pad: float = 0.4) -> Animation:
@@ -167,7 +168,7 @@ class Reel:
         payoff. Follow it with :meth:`tagline`, then the walkthrough."""
         return self.add_animated(html, narration, seconds=seconds, tail_pad=tail_pad)
 
-    def _closing_slide(self) -> Optional[Slide]:
+    def _closing_slide(self) -> Slide | None:
         """The title card again, with the tagline under it, or None when the reel doesn't close on it."""
         if self._title is None or not self.close_on_title:
             return None
@@ -203,7 +204,7 @@ class Reel:
         return Clip(video=video, narration=animation.narration,
                     tail_pad=animation.tail_pad, min_duration=animation.min_duration)
 
-    def _speak(self, text: str, audio: Path, cache: Optional[Cache]) -> Optional[float]:
+    def _speak(self, text: str, audio: Path, cache: Cache | None) -> float | None:
         """Narrate ``text`` into ``audio`` (from the cache when this voice has said it before); return its length."""
         if cache is None:
             return self.tts.synthesize(text, audio)
@@ -215,7 +216,7 @@ class Reel:
         cache.put_audio(key, audio, narrated)
         return narrated
 
-    def _segment_duration(self, slide: Slide, audio: Path, cache: Optional[Cache] = None) -> Optional[float]:
+    def _segment_duration(self, slide: Slide, audio: Path, cache: Cache | None = None) -> float | None:
         """Narrate ``slide`` into ``audio`` and return the segment's target length.
 
         Returns a concrete duration when it's known (so the segment is padded to
@@ -232,7 +233,7 @@ class Reel:
             return None
         return max(narrated + slide.tail_pad, slide.min_duration)
 
-    def _clip_duration(self, clip: Clip, audio: Path, ffmpeg: str, cache: Optional[Cache] = None) -> tuple:
+    def _clip_duration(self, clip: Clip, audio: Path, ffmpeg: str, cache: Cache | None = None) -> tuple:
         """Narrate ``clip`` into ``audio``; return (segment length, last-frame hold)."""
         length = _video.probe_duration(clip.video, ffmpeg=ffmpeg)
         if clip.narration.strip():
@@ -247,7 +248,7 @@ class Reel:
         return duration, duration - length
 
     @staticmethod
-    def _compose_sting(sting: Optional[Sting], path: Path, synth) -> Optional[Sting]:
+    def _compose_sting(sting: Sting | None, path: Path, synth) -> Sting | None:
         """Synthesize a "compose" sting into ``path``; pass any other sting through."""
         if sting is None or not sting.composed:
             return sting
@@ -264,7 +265,7 @@ class Reel:
 
     @staticmethod
     def _note_speech(speech: list, slide, audio: Path, seg: Path, clock: float,
-                     delay: float, duration: Optional[float], ffmpeg: str) -> float:
+                     delay: float, duration: float | None, ffmpeg: str) -> float:
         """Add the segment's spoken span (reel time) to ``speech``; return the next segment's start."""
         if slide.narration.strip():
             start = clock + delay
@@ -278,24 +279,25 @@ class Reel:
         out_path,
         *,
         make_poster: bool = False,
-        workdir: Optional[Path] = None,
-        ffmpeg: Optional[str] = None,
-        on_progress: Optional[ProgressHook] = None,
+        workdir: Path | None = None,
+        ffmpeg: str | None = None,
+        on_progress: ProgressHook | None = None,
         music=None,
         fade_in: float = 0.0,
         fade_out: float = 0.0,
         end_hold: float = 0.0,
-        music_volume: Optional[float] = None,
-        music_fade: Optional[float] = None,
+        music_volume: float | None = None,
+        music_fade: float | None = None,
         cache=None,
-        on_cached: Optional[ProgressHook] = None,
-        verify: Optional[bool] = None,
+        on_cached: ProgressHook | None = None,
+        verify: bool | None = None,
         youtube: bool = False,
     ) -> Path:
         """Render the whole reel to ``out_path`` (an .mp4). Returns the path.
 
         If ``make_poster`` is set, also writes ``<stem>_poster.jpg`` next to it and embeds it as the MP4's cover art.
-        If ``youtube`` is set, also writes ``<stem>-youtube.mp4``, a 2x copy for upload (see :func:`video.youtube_copy`).
+        If ``youtube`` is set, also writes ``<stem>-youtube.mp4``, a 2x copy for upload
+        (see :func:`video.youtube_copy`).
 
         When any of ``fade_in`` / ``fade_out`` / ``end_hold`` is non-zero, the
         concatenated reel is run through :func:`video.master` for a finished cut —
@@ -342,11 +344,11 @@ class Reel:
         needs_browser = any(isinstance(s, (Slide, Animation)) for s in plan)
         renderer = (self.renderer or PlaywrightRenderer()) if needs_browser else contextlib.nullcontext()
 
-        segments: List[Path] = []
+        segments: list[Path] = []
         total = len(plan)
         # When each line is spoken, so a ducking bed can dip under exactly those.
         plan_duck = bed is not None and bed.duck
-        speech: List[tuple] = []
+        speech: list[tuple] = []
         clock = 0.0
         try:
             style = bed.style if bed is not None else "calm"  # composed stings match the bed's style

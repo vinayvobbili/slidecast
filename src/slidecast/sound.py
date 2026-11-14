@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import wave
 from pathlib import Path
-from typing import Dict
 
 try:
     import numpy as np
@@ -294,7 +293,7 @@ def _upbeat_outro():
     return _carve_speech_band(stereo)
 
 
-def music_bed(length: float = 95.0, bpm: float = None, seed: int = 7, style: str = "calm"):
+def music_bed(length: float = 95.0, bpm: float | None = None, seed: int = 7, style: str = "calm"):
     """A bed ``length`` seconds long, as a ``(samples, 2)`` float array.
 
     ``style`` is "calm" (a lo-fi loop at 84 BPM) or "upbeat" (a 124 BPM dance bed with a build every 8 bars;
@@ -412,7 +411,7 @@ LOOP_ABOVE = 150.0
 _SEAM = 1.0  # seconds crossfaded where one piece joins the next
 
 
-def write_long_bed(path, length: float, bpm: float = None, seed: int = 7, peak: float = 0.89,
+def write_long_bed(path, length: float, bpm: float | None = None, seed: int = 7, peak: float = 0.89,
                    style: str = "calm") -> float:
     """Write a bed at least ``length`` seconds long as a WAV; return its length.
 
@@ -425,7 +424,7 @@ def write_long_bed(path, length: float, bpm: float = None, seed: int = 7, peak: 
     require_numpy()
     info = _STYLE_INFO[check_style(style)]
     bpm = info["bpm"] if bpm is None else bpm
-    cycle = int(round(info["cycle_beats"] * 60 / bpm * _SR))
+    cycle = round(info["cycle_beats"] * 60 / bpm * _SR)
     src = music_bed(info["cycles"] * cycle / _SR, bpm=bpm, seed=seed, style=style)
     head, body, tail = src[: 2 * cycle], src[2 * cycle: 5 * cycle], src[5 * cycle:]
     scale = peak / max(float(np.max(np.abs(src))), 1e-12)
@@ -454,7 +453,8 @@ def write_long_bed(path, length: float, bpm: float = None, seed: int = 7, peak: 
     return written / _SR
 
 
-def compose(out_dir, length: float = 95.0, bpm: float = None, seed: int = 7, style: str = "calm") -> Dict[str, Path]:
+def compose(out_dir, length: float = 95.0, bpm: float | None = None, seed: int = 7,
+            style: str = "calm") -> dict[str, Path]:
     """Write music_bed.wav, intro_sting.wav and outro_sting.wav into ``out_dir``.
 
     Returns the three paths by name ("music_bed", "intro_sting", "outro_sting").

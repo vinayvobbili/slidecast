@@ -22,15 +22,16 @@ from __future__ import annotations
 import math
 import subprocess
 import tempfile
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Optional, Protocol, Sequence, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 from .typeset import LONE_WORD_JS
 
 
 @runtime_checkable
 class Renderer(Protocol):
-    def __enter__(self) -> "Renderer": ...
+    def __enter__(self) -> Renderer: ...
     def __exit__(self, *exc) -> None: ...
     def screenshot(self, html: str, out_path: Path, *, width: int, height: int) -> None: ...
 
@@ -68,7 +69,7 @@ class PlaywrightRenderer:
         self._borrowed = browser
         self._browser = None
 
-    def __enter__(self) -> "PlaywrightRenderer":
+    def __enter__(self) -> PlaywrightRenderer:
         if self._borrowed is not None:
             self._browser = self._borrowed
             return self
@@ -164,7 +165,7 @@ class ChromeBinaryRenderer:
         self.extra_args = list(extra_args)
         self.runner = runner
 
-    def __enter__(self) -> "ChromeBinaryRenderer":
+    def __enter__(self) -> ChromeBinaryRenderer:
         return self
 
     def __exit__(self, *exc) -> None:

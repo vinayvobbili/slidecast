@@ -33,7 +33,7 @@ def find_ffmpeg() -> str:
         import imageio_ffmpeg  # type: ignore
 
         return imageio_ffmpeg.get_ffmpeg_exe()
-    except Exception:  # noqa: BLE001 — any failure here means "not available"
+    except Exception:  # any failure here means "not available"
         pass
 
     raise FFmpegNotFound(

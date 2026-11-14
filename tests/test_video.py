@@ -2,10 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from slidecast import (Music, Sting, build_clip_segment, build_segment, concat, master,
-                       mix_music, poster, youtube_copy)
-from slidecast.video import embed_poster
-from slidecast.video import DUCK
+from slidecast import Music, Sting, build_clip_segment, build_segment, concat, master, mix_music, poster, youtube_copy
+from slidecast.video import DUCK, embed_poster
 from tests.fakes import FakeRunner
 
 

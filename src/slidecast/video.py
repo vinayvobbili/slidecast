@@ -15,7 +15,6 @@ import subprocess
 import tempfile
 from dataclasses import replace
 from pathlib import Path
-from typing import List, Optional, Tuple
 
 from .ffmpeg import find_ffmpeg
 from .models import Music, Sting
@@ -42,7 +41,7 @@ LIMITER = "alimiter=limit=0.95:level=0"
 AAC_SUFFIXES = (".mp4", ".m4v", ".mov")
 
 
-def _segment_audio(out: Path, audio_bitrate: str) -> List[str]:
+def _segment_audio(out: Path, audio_bitrate: str) -> list[str]:
     if Path(out).suffix.lower() in AAC_SUFFIXES:
         return ["-c:a", "aac", "-b:a", audio_bitrate, "-movflags", "+faststart"]
     return ["-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2"]
@@ -56,10 +55,10 @@ def build_segment(
     width: int,
     height: int,
     fps: int = 25,
-    duration: Optional[float] = None,
+    duration: float | None = None,
     delay: float = 0.0,
     audio_bitrate: str = "192k",
-    ffmpeg: Optional[str] = None,
+    ffmpeg: str | None = None,
     runner=None,
 ) -> Path:
     """Render one still image + its audio into an H.264 segment: AAC in an MP4, PCM in anything else (.mkv).
@@ -71,7 +70,7 @@ def build_segment(
     """
     ffmpeg = ffmpeg or find_ffmpeg()
     runner = runner or subprocess.run
-    cmd: List[str] = [
+    cmd: list[str] = [
         ffmpeg, "-y", "-loglevel", "error",
         "-loop", "1", "-i", str(image),
         "-i", str(audio),
@@ -100,13 +99,13 @@ def encode_frames(
     out: Path,
     *,
     fps: int,
-    ffmpeg: Optional[str] = None,
+    ffmpeg: str | None = None,
     runner=None,
 ) -> Path:
     """Encode a folder of ``f00000.png``-style frames (see ``PlaywrightRenderer.animate``) into a silent H.264 clip."""
     ffmpeg = ffmpeg or find_ffmpeg()
     runner = runner or subprocess.run
-    cmd: List[str] = [
+    cmd: list[str] = [
         ffmpeg, "-y", "-loglevel", "error",
         "-framerate", str(fps), "-i", str(Path(frames) / "f%05d.png"),
         "-c:v", "libx264", "-crf", "14", "-pix_fmt", "yuv420p",
@@ -128,7 +127,7 @@ def build_clip_segment(
     delay: float = 0.0,
     fps: int = 25,
     audio_bitrate: str = "192k",
-    ffmpeg: Optional[str] = None,
+    ffmpeg: str | None = None,
     runner=None,
 ) -> Path:
     """Render a recorded clip + narration into a segment that concats with slides.
@@ -154,7 +153,7 @@ def build_clip_segment(
         vchain.append(f"tpad=stop_mode=clone:stop_duration={hold:.3f}")
     vchain.append("format=yuv420p")
     achain = ([_adelay(delay)] if delay > 0 else []) + ["apad"]
-    cmd: List[str] = [
+    cmd: list[str] = [
         ffmpeg, "-y", "-loglevel", "error",
         "-i", str(clip),
         "-i", str(audio),
@@ -171,10 +170,10 @@ def build_clip_segment(
 
 
 def concat(
-    segments: List[Path],
+    segments: list[Path],
     out: Path,
     *,
-    ffmpeg: Optional[str] = None,
+    ffmpeg: str | None = None,
     runner=None,
 ) -> Path:
     """Concatenate segments via the concat demuxer: the video copied losslessly, the audio encoded to AAC once."""
@@ -210,11 +209,11 @@ def youtube_path(src: Path) -> Path:
 
 def youtube_copy(
     src: Path,
-    out: Optional[Path] = None,
+    out: Path | None = None,
     *,
     scale: int = 2,
     fps: int = 30,
-    ffmpeg: Optional[str] = None,
+    ffmpeg: str | None = None,
     runner=None,
 ) -> Path:
     """Re-encode ``src`` for upload: ``scale`` times the size (aspect kept), 30 fps, high quality.
@@ -229,7 +228,7 @@ def youtube_copy(
     ffmpeg = ffmpeg or find_ffmpeg()
     runner = runner or subprocess.run
     out = Path(out) if out else youtube_path(src)
-    cmd: List[str] = [
+    cmd: list[str] = [
         ffmpeg, "-y", "-loglevel", "error", "-i", str(src),
         "-map", "0:v:0", "-map", "0:a?",
         "-vf", f"scale=iw*{scale}:ih*{scale}:flags=lanczos,fps={fps}",
@@ -242,7 +241,7 @@ def youtube_copy(
     return out
 
 
-def _ffprobe_for(ffmpeg: str) -> Optional[str]:
+def _ffprobe_for(ffmpeg: str) -> str | None:
     """Best-effort path to an ffprobe that matches ``ffmpeg`` (or one on PATH)."""
     cand = re.sub(r"ffmpeg(\.exe)?$", lambda m: "ffprobe" + (m.group(1) or ""), ffmpeg)
     if cand != ffmpeg and (shutil.which(cand) or os.path.isfile(cand)):
@@ -250,7 +249,7 @@ def _ffprobe_for(ffmpeg: str) -> Optional[str]:
     return shutil.which("ffprobe")
 
 
-def probe_duration(media: Path, *, ffmpeg: Optional[str] = None) -> float:
+def probe_duration(media: Path, *, ffmpeg: str | None = None) -> float:
     """Return the duration of ``media`` in seconds.
 
     Prefers ``ffprobe`` (matched to the ffmpeg binary, else one on PATH); falls
@@ -281,7 +280,7 @@ def _adelay(seconds: float) -> str:
     return f"adelay={round(seconds * 1000)}:all=1"
 
 
-def _amix(labels: List[str], out: str) -> str:
+def _amix(labels: list[str], out: str) -> str:
     # normalize=0: amix would otherwise scale each input by 1/n, quietly turning
     # the narration down every time something is mixed under it.
     return (f"{''.join(labels)}amix=inputs={len(labels)}:duration=first:"
@@ -293,10 +292,10 @@ def _loudnorm(target: float) -> str:
     return f"loudnorm=I={target:g}:TP=-1.5:LRA=11,aresample=48000"
 
 
-Span = Tuple[float, float]
+Span = tuple[float, float]
 
 
-def _duck_curve(music: Music, spans: List[Span]) -> str:
+def _duck_curve(music: Music, spans: list[Span]) -> str:
     """The bed's volume over time: ``volume`` in the gaps, ``duck_db`` lower under each span.
 
     Each span is a trapezoid (ramp down, hold, ramp up); overlapping ramps take
@@ -308,7 +307,7 @@ def _duck_curve(music: Music, spans: List[Span]) -> str:
     # max() of them all as a balanced tree, not a chain: ffmpeg's expression parser refuses nesting past 100
     # levels, which a chain of one max() per span passes in a long video (a drill with 100+ spoken lines).
     while len(terms) > 1:
-        terms = [f"max({a},{b})" for a, b in zip(terms[::2], terms[1::2])] + terms[len(terms) // 2 * 2:]
+        terms = [f"max({a},{b})" for a, b in zip(terms[::2], terms[1::2], strict=False)] + terms[len(terms) // 2 * 2:]
     depth = terms[0] if terms else ""
     dip = 1 - 10 ** (-music.duck_db / 20)
     return f"asetnsamples=n=480,volume='{music.volume:g}*(1-{dip:.4f}*{depth})':eval=frame"
@@ -318,14 +317,14 @@ def _audio_graph(
     narration: str,
     total: float,
     *,
-    music: Optional[Music],
-    intro: Optional[Sting],
-    outro: Optional[Sting],
+    music: Music | None,
+    intro: Sting | None,
+    outro: Sting | None,
     outro_duration: float,
-    loudness: Optional[float] = None,
-    speech: Optional[List[Span]] = None,
+    loudness: float | None = None,
+    speech: list[Span] | None = None,
     intro_duration: float = 0.0,
-) -> Tuple[List[str], str]:
+) -> tuple[list[str], str]:
     """Build the audio half of the mix: narration + stings + bed -> ``[a]``.
 
     ``narration`` is the filter chain applied to ``[0:a]`` (padding it to
@@ -345,7 +344,7 @@ def _audio_graph(
         tail = f",{_loudnorm(loudness)}" if loudness is not None else ""
         return [], f"[0:a]{narration}{tail}[a]"
     final = f",{LIMITER}" + (f",{_loudnorm(loudness)}" if loudness is not None else "") + "[a]"
-    inputs: List[str] = []
+    inputs: list[str] = []
     graph = [f"[0:a]{narration},aformat=sample_rates=48000:channel_layouts=stereo[narr]"]
     voices = ["[narr]"]
     if music is not None:
@@ -393,7 +392,7 @@ def _audio_graph(
     # so the fades shape the final level rather than feeding the compressor.
     bed = [f"atrim=0:{total:.3f}", "asetpts=PTS-STARTPTS",
            f"volume={music.volume}", "aformat=sample_rates=48000:channel_layouts=stereo"]
-    fades: List[str] = []
+    fades: list[str] = []
     if music.fade_in > 0:
         fades.append(f"afade=t=in:st=0:d={music.fade_in:.3f}")
     if music.fade_out > 0:
@@ -410,7 +409,7 @@ def _audio_graph(
     return inputs, ";".join(graph)
 
 
-def _outro_length(outro: Optional[Sting], outro_duration: Optional[float], ffmpeg: str) -> float:
+def _outro_length(outro: Sting | None, outro_duration: float | None, ffmpeg: str) -> float:
     if outro is None:
         return 0.0
     if outro_duration is None:
@@ -418,8 +417,8 @@ def _outro_length(outro: Optional[Sting], outro_duration: Optional[float], ffmpe
     return outro_duration
 
 
-def _intro_length(music: Optional[Music], intro: Optional[Sting],
-                  speech: Optional[List[Span]], ffmpeg: str) -> float:
+def _intro_length(music: Music | None, intro: Sting | None,
+                  speech: list[Span] | None, ffmpeg: str) -> float:
     # Only the planned duck curve needs it, to dip the bed under the intro.
     if intro is None or music is None or not music.duck or speech is None:
         return 0.0
@@ -436,14 +435,14 @@ def master(
     fade_in: float = 0.0,
     fade_out: float = 1.2,
     end_hold: float = 2.5,
-    music_volume: Optional[float] = None,
-    music_fade: Optional[float] = None,
-    total_duration: Optional[float] = None,
-    outro_duration: Optional[float] = None,
-    loudness: Optional[float] = None,
+    music_volume: float | None = None,
+    music_fade: float | None = None,
+    total_duration: float | None = None,
+    outro_duration: float | None = None,
+    loudness: float | None = None,
     audio_bitrate: str = "192k",
-    ffmpeg: Optional[str] = None,
-    speech: Optional[List[Span]] = None,
+    ffmpeg: str | None = None,
+    speech: list[Span] | None = None,
     runner=None,
 ) -> Path:
     """Finish a concatenated reel: fade in/out, hold on the last frame, score it.
@@ -481,7 +480,7 @@ def master(
         total_duration = probe_duration(video, ffmpeg=ffmpeg)
     total = total_duration + end_hold
 
-    vchain: List[str] = []
+    vchain: list[str] = []
     if end_hold > 0:
         vchain.append(f"tpad=stop_mode=clone:stop_duration={end_hold:.3f}")
     if fade_in > 0:
@@ -496,7 +495,7 @@ def master(
         outro_duration=_outro_length(outro, outro_duration, ffmpeg), loudness=loudness,
         speech=speech, intro_duration=_intro_length(music, intro, speech, ffmpeg),
     )
-    cmd: List[str] = [
+    cmd: list[str] = [
         ffmpeg, "-y", "-loglevel", "error", "-i", str(video), *inputs,
         # The video goes through -vf, not through the same -filter_complex as the audio: with loudnorm in a graph
         # that also carries the video, ffmpeg plays the whole mix about 3 s early against the picture.
@@ -517,12 +516,12 @@ def mix_music(
     *,
     intro=None,
     outro=None,
-    total_duration: Optional[float] = None,
-    outro_duration: Optional[float] = None,
-    loudness: Optional[float] = None,
+    total_duration: float | None = None,
+    outro_duration: float | None = None,
+    loudness: float | None = None,
     audio_bitrate: str = "192k",
-    ffmpeg: Optional[str] = None,
-    speech: Optional[List[Span]] = None,
+    ffmpeg: str | None = None,
+    speech: list[Span] | None = None,
     runner=None,
 ) -> Path:
     """Lay a music bed and/or intro/outro stings under a reel's narration.
@@ -556,7 +555,7 @@ def mix_music(
         outro_duration=_outro_length(outro, outro_duration, ffmpeg), loudness=loudness,
         speech=speech, intro_duration=_intro_length(music, intro, speech, ffmpeg),
     )
-    cmd: List[str] = [
+    cmd: list[str] = [
         ffmpeg, "-y", "-loglevel", "error", "-i", str(video), *inputs,
         "-filter_complex", graph, "-map", "0:v", "-map", "[a]",
         "-c:v", "copy",
@@ -572,7 +571,7 @@ def embed_poster(
     video: Path,
     image: Path,
     *,
-    ffmpeg: Optional[str] = None,
+    ffmpeg: str | None = None,
     runner=None,
 ) -> Path:
     """Attach ``image`` to the MP4 as its cover art (an attached_pic stream), in place.
@@ -601,7 +600,7 @@ def poster(
     *,
     quality: int = 3,
     at: float = 0.0,
-    ffmpeg: Optional[str] = None,
+    ffmpeg: str | None = None,
     runner=None,
 ) -> Path:
     """Write the frame at ``at`` seconds (default the first) as a JPEG poster image.

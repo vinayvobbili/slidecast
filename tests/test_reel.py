@@ -4,7 +4,6 @@ from pathlib import Path
 import pytest
 
 from slidecast import Reel, SilentTTS
-from slidecast.tts import KokoroTTS
 from tests.fakes import FakeRenderer, FakeRunner
 
 

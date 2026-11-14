@@ -4,9 +4,8 @@ import subprocess
 
 import pytest
 
-from slidecast import Reel, ReelCheckError, SilentTTS, Theme
+from slidecast import Reel, ReelCheckError, SilentTTS, Theme, cli
 from slidecast import check as chk
-from slidecast import cli
 from slidecast import reel as reel_mod
 from slidecast.ffmpeg import FFmpegNotFound, find_ffmpeg
 from tests.fakes import FakeAnimator, FakeRunner
@@ -39,7 +38,7 @@ def test_title_card_is_first_and_silent_for_its_seconds():
 
 
 def test_tagline_is_spoken_and_shown_big_in_the_accent_gradient():
-    reel, renderer = story()
+    reel, _ = story()
     reel.title_card(TITLE)
     slide = reel.tagline(TAG)
     assert slide.narration == TAG and slide.html.count(TAG) == 1
@@ -137,7 +136,7 @@ real = pytest.mark.skipif(FFMPEG is None, reason="ffmpeg not available")
 def _video(tmp_path, name, colors):
     """A 25 fps clip of color segments [(color, seconds), ...], with a silent audio track."""
     parts = [["-f", "lavfi", "-i", f"color=c={c}:s=160x90:r=25:d={d}"] for c, d in colors]
-    cmd = [FFMPEG, "-y", "-loglevel", "error", *sum(parts, [])]
+    cmd = [FFMPEG, "-y", "-loglevel", "error", *[x for part in parts for x in part]]
     cmd += ["-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono"]  # reels always carry an audio track
     cmd += ["-filter_complex", "".join(f"[{i}:v]" for i in range(len(colors))) + f"concat=n={len(colors)}:v=1[v]",
             "-map", "[v]", "-map", f"{len(colors)}:a", "-shortest", "-pix_fmt", "yuv420p", str(tmp_path / name)]
@@ -162,7 +161,8 @@ def test_a_late_voice_is_flagged_in_a_real_file(tmp_path):
     silent = _video(tmp_path, "open.mp4", [("#6d5cff", 8)])
     out = tmp_path / "voiced.mp4"
     subprocess.run([FFMPEG, "-y", "-loglevel", "error", "-i", str(silent), "-f", "lavfi", "-i",
-                    "sine=f=2500:d=2:sample_rate=24000", "-map", "0:v", "-map", "1:a", "-af", "adelay=5500|5500,apad", "-shortest",
+                    "sine=f=2500:d=2:sample_rate=24000", "-map", "0:v", "-map", "1:a",
+                    "-af", "adelay=5500|5500,apad", "-shortest",
                     "-c:v", "copy", str(out)], check=True)
     start = chk.first_speech(out, ffmpeg=FFMPEG)
     assert start == pytest.approx(5.5, abs=0.3)

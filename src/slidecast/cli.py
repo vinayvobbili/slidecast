@@ -37,7 +37,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 from . import sound
 from .models import COMPOSE, Music, Sting
@@ -46,18 +46,18 @@ from .render import ChromeBinaryRenderer
 from .tts import GTTSTTS, KokoroTTS, MacSayTTS, MLXKokoroTTS, SilentTTS, pronunciation_summary, wav_duration
 
 
-def _load_spec(path: Path) -> Dict[str, Any]:
+def _load_spec(path: Path) -> dict[str, Any]:
     text = path.read_text()
     if path.suffix in (".yaml", ".yml"):
         try:
             import yaml
-        except ImportError:  # noqa: BLE001
-            raise SystemExit("YAML spec needs PyYAML — `pip install slidecast[yaml]`")
+        except ImportError:
+            raise SystemExit("YAML spec needs PyYAML — `pip install slidecast[yaml]`") from None
         return yaml.safe_load(text)
     return json.loads(text)
 
 
-def _build_tts(cfg: Dict[str, Any]):
+def _build_tts(cfg: dict[str, Any]):
     cfg = dict(cfg or {})
     provider = (cfg.pop("provider", "silent") or "silent").lower()
     if provider == "kokoro":
@@ -73,7 +73,7 @@ def _build_tts(cfg: Dict[str, Any]):
     raise SystemExit(f"Unknown tts provider: {provider!r}")
 
 
-def _audio_cfg(cfg: Any, base: Path, key: str, allowed: Dict[str, type]) -> Dict[str, Any]:
+def _audio_cfg(cfg: Any, base: Path, key: str, allowed: dict[str, type]) -> dict[str, Any]:
     """Normalize a ``key:`` entry that is a path or a mapping with a ``file``.
 
     A ``file`` of "compose" stays as is, for the reel to synthesize.
@@ -105,7 +105,7 @@ def _build_sting(cfg: Any, base: Path, key: str):
     return Sting(**_audio_cfg(cfg, base, key, {"volume": float}))
 
 
-def _build_reel(spec: Dict[str, Any], base: Path) -> Reel:
+def _build_reel(spec: dict[str, Any], base: Path) -> Reel:
     reel = Reel(
         width=int(spec.get("width", 1920)),
         height=int(spec.get("height", 1080)),
@@ -162,7 +162,8 @@ def main(argv=None) -> int:
                    help="bed tempo (default: 84 for calm, 124 for upbeat)")
     c.add_argument("--seed", type=int, default=7, metavar="N",
                    help="same seed, same audio (default 7)")
-    k = sub.add_parser("check", help="check a rendered reel: black at the end, a long silent opening, the quiet at each slide change")
+    k = sub.add_parser("check", help="check a rendered reel: black at the end, a long silent opening, "
+                                     "the quiet at each slide change")
     k.add_argument("video", type=Path, help="a rendered .mp4")
     k.add_argument("--min-gap", type=float, default=0.0, metavar="SECONDS",
                    help="exit 1 when a change comes less than this long after the voice")
@@ -209,7 +210,7 @@ def main(argv=None) -> int:
         try:
             paths = sound.compose(args.out, length=args.length, bpm=args.bpm, seed=args.seed, style=args.style)
         except ImportError as e:
-            raise SystemExit(str(e))
+            raise SystemExit(str(e)) from e
         for path in paths.values():
             print(f"✓ wrote {path} ({wav_duration(path):.1f} s)")
 

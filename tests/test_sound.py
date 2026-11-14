@@ -215,4 +215,5 @@ def test_a_long_upbeat_bed_loops_on_whole_phrases(tmp_path, monkeypatch):
 def test_compose_writes_the_upbeat_files(tmp_path):
     paths = sound.compose(tmp_path, length=3.0, style="upbeat")
     assert sorted(p.name for p in paths.values()) == ["intro_sting.wav", "music_bed.wav", "outro_sting.wav"]
-    assert not np.array_equal(_read_bed(paths["music_bed"]), _read_bed(sound.compose(tmp_path / "c", length=3.0)["music_bed"]))
+    other = sound.compose(tmp_path / "c", length=3.0)["music_bed"]
+    assert not np.array_equal(_read_bed(paths["music_bed"]), _read_bed(other))

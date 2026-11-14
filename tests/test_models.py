@@ -1,6 +1,6 @@
-import pytest
-
 from pathlib import Path
+
+import pytest
 
 from slidecast import Clip, Music, Slide, Sting
 

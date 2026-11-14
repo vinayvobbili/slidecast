@@ -15,9 +15,9 @@ import math
 import re
 import subprocess
 from array import array
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Sequence
 
 from .ffmpeg import find_ffmpeg
 
@@ -39,7 +39,7 @@ class Cut:
     quiet_after: float       # until the first speech frame after it
 
 
-def slide_changes(video: Path, *, ffmpeg: Optional[str] = None, scene: float = SCENE) -> List[float]:
+def slide_changes(video: Path, *, ffmpeg: str | None = None, scene: float = SCENE) -> list[float]:
     ffmpeg = ffmpeg or find_ffmpeg()
     res = subprocess.run([ffmpeg, "-v", "info", "-i", str(video), "-an", "-vf",
                           f"select='gt(scene,{scene})',showinfo", "-f", "null", "-"],
@@ -47,7 +47,7 @@ def slide_changes(video: Path, *, ffmpeg: Optional[str] = None, scene: float = S
     return [float(t) for t in re.findall(r"pts_time:([0-9.]+)", res.stderr)]
 
 
-def speech_levels(video: Path, *, ffmpeg: Optional[str] = None, band=BAND, hop: float = HOP) -> List[float]:
+def speech_levels(video: Path, *, ffmpeg: str | None = None, band=BAND, hop: float = HOP) -> list[float]:
     """dB of the voice's band in each ``hop``-second frame."""
     ffmpeg = ffmpeg or find_ffmpeg()
     res = subprocess.run([ffmpeg, "-v", "error", "-i", str(video), "-vn", "-af",
@@ -65,7 +65,7 @@ def speech_levels(video: Path, *, ffmpeg: Optional[str] = None, band=BAND, hop: 
     return levels
 
 
-def speech(levels: Sequence[float], drop: float = DROP, peak: float = PEAK, join: int = JOIN) -> List[bool]:
+def speech(levels: Sequence[float], drop: float = DROP, peak: float = PEAK, join: int = JOIN) -> list[bool]:
     """Which frames are speech: within ``drop`` dB of the loud ones (the 95th percentile), in a burst that
     gets within ``peak`` dB of them. Frames less than ``join`` apart make one burst. A music bed that swells
     over a long silent hold crosses the ``drop`` line but never reaches the ``peak`` one; a voice does."""
@@ -92,14 +92,15 @@ def speech(levels: Sequence[float], drop: float = DROP, peak: float = PEAK, join
 
 
 def level_rows(levels: Sequence[float], start: float, end: float, talking: Sequence[bool],
-               hop: float = HOP) -> List[str]:
-    """One printable row per frame from ``start`` to ``end`` seconds: time, dB, a bar, and S where it counts as speech."""
+               hop: float = HOP) -> list[str]:
+    """One printable row per frame from ``start`` to ``end`` seconds: time, dB, a bar, and S where it is speech."""
     first, last = max(int(start / hop + 1e-6), 0), min(int(end / hop + 1e-6), len(levels))
-    return [f"{i * hop:8.2f} s {levels[i]:7.1f} dB {'#' * max(int((levels[i] + 80) / 2), 0):<40} {'S' if talking[i] else ''}"
+    return [f"{i * hop:8.2f} s {levels[i]:7.1f} dB {'#' * max(int((levels[i] + 80) / 2), 0):<40} "
+            f"{'S' if talking[i] else ''}"
             for i in range(first, last)]
 
 
-def cuts(changes: Sequence[float], talking: Sequence[bool], hop: float = HOP) -> List[Cut]:
+def cuts(changes: Sequence[float], talking: Sequence[bool], hop: float = HOP) -> list[Cut]:
     out = []
     for at in changes:
         # Whole frames only: those ending by the change, and those starting from it (0.30 / 0.05 is 5.999...).
@@ -111,11 +112,11 @@ def cuts(changes: Sequence[float], talking: Sequence[bool], hop: float = HOP) ->
     return out
 
 
-def check(video: Path, *, ffmpeg: Optional[str] = None, drop: float = DROP) -> List[Cut]:
+def check(video: Path, *, ffmpeg: str | None = None, drop: float = DROP) -> list[Cut]:
     return cuts(slide_changes(video, ffmpeg=ffmpeg), speech(speech_levels(video, ffmpeg=ffmpeg), drop))
 
 
-def black_tail(video: Path, *, ffmpeg: Optional[str] = None, tail: float = TAIL) -> bool:
+def black_tail(video: Path, *, ffmpeg: str | None = None, tail: float = TAIL) -> bool:
     """True when the last ``tail`` seconds contain black frames (ffmpeg blackdetect). The threshold is near true
     black, so a dark brand card doesn't count."""
     ffmpeg = ffmpeg or find_ffmpeg()
@@ -125,14 +126,14 @@ def black_tail(video: Path, *, ffmpeg: Optional[str] = None, tail: float = TAIL)
     return "black_start" in res.stderr
 
 
-def first_speech(video: Path, *, ffmpeg: Optional[str] = None) -> Optional[float]:
+def first_speech(video: Path, *, ffmpeg: str | None = None) -> float | None:
     """Seconds until the first narration, or None when the reel has none."""
     talking = speech(speech_levels(video, ffmpeg=ffmpeg))
     return next((i * HOP for i, t in enumerate(talking) if t), None)
 
 
-def check_ends(video: Path, *, ffmpeg: Optional[str] = None, max_open: float = MAX_OPEN,
-               tail: float = TAIL) -> List[str]:
+def check_ends(video: Path, *, ffmpeg: str | None = None, max_open: float = MAX_OPEN,
+               tail: float = TAIL) -> list[str]:
     """What is wrong with the reel's ends, one line each (empty when it is fine): the last ``tail`` seconds have
     black frames, or the first card runs over ``max_open`` seconds before any narration."""
     problems = []

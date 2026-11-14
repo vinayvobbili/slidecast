@@ -5,7 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from slidecast import Reel, SilentTTS, cache as cache_mod
+from slidecast import Reel, SilentTTS
+from slidecast import cache as cache_mod
 from slidecast.cache import Cache
 from tests.fakes import FakeRenderer, FakeRunner
 
@@ -229,7 +230,8 @@ def test_audio_roundtrip_keeps_an_unknown_duration(tmp_path):
 def test_tts_identity_sees_public_settings_and_honors_cache_key():
     a, b = CountingTTS("v1"), CountingTTS("v2")
     assert cache_mod.tts_identity(a) != cache_mod.tts_identity(b)
-    assert cache_mod.tts_identity(SilentTTS(seconds=1, sample_rate=8000)) != cache_mod.tts_identity(SilentTTS(seconds=1))
+    wide = cache_mod.tts_identity(SilentTTS(seconds=1, sample_rate=8000))
+    assert wide != cache_mod.tts_identity(SilentTTS(seconds=1))
     b.cache_key = "model-9"
     assert cache_mod.tts_identity(b).endswith(":model-9")
 

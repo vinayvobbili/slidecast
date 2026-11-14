@@ -5,7 +5,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Union
 
 
 @dataclass(frozen=True)
@@ -78,7 +77,7 @@ class Clip:
         min_duration: A floor on the segment length; the last frame holds to reach it.
     """
 
-    video: Union[str, Path]
+    video: str | Path
     narration: str = ""
     tail_pad: float = 0.0
     min_duration: float = 0.0
@@ -123,7 +122,7 @@ class Animation:
             raise ValueError("tail_pad and min_duration must be non-negative")
 
 
-Segment = Union[Slide, Clip, Animation]
+Segment = Slide | Clip | Animation
 
 # A Music or Sting ``file`` of "compose" asks the reel to synthesize one (see
 # :mod:`slidecast.sound`) into its work directory at render time.
@@ -156,12 +155,12 @@ class Music:
             compressor follows the voice instead, and this is ignored.
     """
 
-    file: Union[str, Path]
+    file: str | Path
     volume: float = 0.22
     fade_in: float = 1.0
     fade_out: float = 2.0
     duck: bool = True
-    duck_db: Optional[float] = None
+    duck_db: float | None = None
     style: str = "calm"
 
     def __post_init__(self) -> None:
@@ -181,7 +180,7 @@ class Music:
         return str(self.file) == COMPOSE
 
     @classmethod
-    def of(cls, value) -> Optional["Music"]:
+    def of(cls, value) -> Music | None:
         """Coerce a path (or an existing :class:`Music`, or None) into a Music."""
         if value is None or isinstance(value, cls):
             return value
@@ -201,8 +200,8 @@ class Sting:
             for an outro, clearly above the bed.
     """
 
-    file: Union[str, Path]
-    volume: Optional[float] = None
+    file: str | Path
+    volume: float | None = None
 
     def __post_init__(self) -> None:
         if not str(self.file).strip():
@@ -217,7 +216,7 @@ class Sting:
         return str(self.file) == COMPOSE
 
     @classmethod
-    def of(cls, value) -> Optional["Sting"]:
+    def of(cls, value) -> Sting | None:
         """Coerce a path (or an existing :class:`Sting`, or None) into a Sting."""
         if value is None or isinstance(value, cls):
             return value

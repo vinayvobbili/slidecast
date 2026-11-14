@@ -241,7 +241,7 @@ NOUN, VERB = "/ɹˈɛzəmˌA/", "/ɹəzˈum/"
     ("Tailor each resume to the job.", f"Tailor each [resume]({NOUN}) to the job."),
     ("Where to resume the work.", f"Where to [resume]({VERB}) the work."),
     ("It will resume tomorrow, and can't resume.", f"It will [resume]({VERB}) tomorrow, and can't [resume]({VERB})."),
-    ("The queue resumes where it stopped.", f"The queue [resumes](/ɹəzˈumz/) where it stopped."),
+    ("The queue resumes where it stopped.", "The queue [resumes](/ɹəzˈumz/) where it stopped."),
     ("Then resume from the last step.", f"Then [resume]({VERB}) from the last step."),
     ("He resumed work; resuming soon.", "He resumed work; resuming soon."),
 ])
@@ -277,7 +277,8 @@ def test_kokoro_fixes_say_read_in_the_past(line, said):
 @pytest.mark.parametrize("line, said", [
     ("Read them out loud.", f"[Read]({REED}) them out loud."),
     ("Stop here. Read the last page.", f"Stop here. [Read]({REED}) the last page."),
-    ("You need to read it, and you will read more.", f"You need to [read]({REED}) it, and you will [read]({REED}) more."),
+    ("You need to read it, and you will read more.",
+     f"You need to [read]({REED}) it, and you will [read]({REED}) more."),
     ("Users can read the log.", f"Users can [read]({REED}) the log."),
     ("I read every morning.", f"I [read]({REED}) every morning."),
     ("Please re-read the notes.", "Please [re-read](/ɹˌiɹˈid/) the notes."),
@@ -405,7 +406,7 @@ def test_homebrew_espeak_fills_only_unset_vars_whose_paths_exist():
 def _has_mlx_audio():
     try:
         import mlx_audio  # noqa: F401
-    except Exception:  # noqa: BLE001 — absent, or present but unusable here
+    except Exception:  # absent, or present but unusable here
         return False
     return True
 

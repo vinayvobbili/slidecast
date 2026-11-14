@@ -1,5 +1,3 @@
-import os
-
 import pytest
 
 from slidecast import find_ffmpeg

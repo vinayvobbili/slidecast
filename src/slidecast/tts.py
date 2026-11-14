@@ -31,28 +31,29 @@ import re
 import struct
 import wave
 from array import array
+from collections.abc import Callable, Iterable
 from pathlib import Path
-from typing import Callable, Dict, Iterable, Optional, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 
 @runtime_checkable
 class TTSProvider(Protocol):
-    def synthesize(self, text: str, out_path: Path) -> Optional[float]:
+    def synthesize(self, text: str, out_path: Path) -> float | None:
         """Write audio for ``text`` to ``out_path``; return its duration or None."""
         ...
 
 
-def wav_duration(path: Path) -> Optional[float]:
+def wav_duration(path: Path) -> float | None:
     """Duration of a WAV file in seconds, or None if it isn't a readable WAV."""
     try:
         with wave.open(str(path)) as w:
             rate = w.getframerate()
             return w.getnframes() / float(rate) if rate else None
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None
 
 
-def apply_phonetic(text: str, rules: Optional[Dict[str, str]]) -> str:
+def apply_phonetic(text: str, rules: dict[str, str] | None) -> str:
     """Rewrite spoken text by regex so TTS pronounces tricky tokens correctly.
 
     ``rules`` maps a regex pattern to its spoken replacement, e.g.
@@ -70,7 +71,7 @@ def apply_phonetic(text: str, rules: Optional[Dict[str, str]]) -> str:
 # Its tagger reads "went live" as the verb ("liv"): live after these words, or before a noun it describes, gets the
 # adjective's sound ("lyve"). "I live in" is left to the tagger, which gets the verb right.
 _LYVE = r"[\g<w>](/lˈIv/)"
-KOKORO_FIXES: Dict[str, str] = {
+KOKORO_FIXES: dict[str, str] = {
     r"(?i)\b(?P<pre>(?:go|goes|going|went|gone|is|are|was|were|be|been|it's|that's|what's|ran it|run it|"
     r"running it)\s+)(?P<w>live)\b": r"\g<pre>" + _LYVE,
     r"(?i)(?<!\[)\b(?P<w>live)(?=\s+(?:runs?|tests?|systems?|data|demos?|traffic|calls?|customers?|users?|"
@@ -98,7 +99,8 @@ KOKORO_FIXES: Dict[str, str] = {
     r"\bUS(?=\d)": "U S ",
     # "24x7", "24 x 7", "1280×800": number, x, number is "24 by 7", not the letter x. "2x faster" (times) and hex
     # like 0x1F are left alone, as is anything inside a word or identifier, and "6 × 24 h" (times, a unit follows)
-    r"(?<![\w.])(?!0[xX])(?P<a>\d+)\s?[x×]\s?(?P<b>\d+)(?!\w|\s(?:h|hrs?|hours?|m|mins?|s|secs?|ms|d|days?)\b)": r"\g<a> by \g<b>",
+    r"(?<![\w.])(?!0[xX])(?P<a>\d+)\s?[x×]\s?(?P<b>\d+)"
+    r"(?!\w|\s(?:h|hrs?|hours?|m|mins?|s|secs?|ms|d|days?)\b)": r"\g<a> by \g<b>",
     # "route" the American way (rhymes with "out"), not the British "root"; whole words, so "routine" stays
     r"\b(?P<r>[Rr])oute(?P<s>s?)\b": r"\g<r>owt\g<s>",
     r"\b(?P<r>[Rr])outed\b": r"\g<r>owted",
@@ -128,7 +130,7 @@ _READ_PRESENT_CUES = (r"\b(?:to|will|would|can|cannot|could|should|may|might|mus
                       r"(?:don|doesn|didn|won|can)['’]t|let['’]s|i|you|we|they)\s+")
 
 
-def _read_rules() -> Dict[str, str]:
+def _read_rules() -> dict[str, str]:
     override, past, present = {}, {}, {}
     for form, (red, reed) in _READ_FORMS.items():
         word = rf"(?P<w>{form})\b"
@@ -167,14 +169,14 @@ _SOUND_NAMES = {"ɹˈɛzəmˌA": "noun", "ɹˈɛzəmˌAz": "noun", "ɹəzˈum": 
 _OVERRIDE = re.compile(r"\[([^\]]+)\]\(/([^/)]+)/\)")
 
 
-def pronunciation_summary(texts: Iterable[str], *rule_sets: Optional[Dict[str, str]]) -> str:
+def pronunciation_summary(texts: Iterable[str], *rule_sets: dict[str, str] | None) -> str:
     """One line naming each word a rule gave a sound to, and which, with counts; "" when no rule did.
 
     Runs the rules over ``texts`` the way :func:`apply_phonetic` does and counts the ``[word](/phonemes/)``
     overrides they write, e.g. ``"pronunciation: resume→noun ×3, read→past ×1"``. It makes a wrong guess
     visible before a video ships. Pass the rule sets in the order the voice applies them.
     """
-    found: Dict[str, int] = {}
+    found: dict[str, int] = {}
 
     def count(m, repl):
         spoken = m.expand(repl)
@@ -190,7 +192,8 @@ def pronunciation_summary(texts: Iterable[str], *rule_sets: Optional[Dict[str, s
                 text = re.sub(pattern, lambda m, repl=repl: count(m, repl), text)
     if not found:
         return ""
-    return "pronunciation: " + ", ".join(f"{label} ×{n}" for label, n in sorted(found.items(), key=lambda kv: (-kv[1], kv[0])))
+    listed = ", ".join(f"{label} ×{n}" for label, n in sorted(found.items(), key=lambda kv: (-kv[1], kv[0])))
+    return "pronunciation: " + listed
 
 
 class SilentTTS:
@@ -227,7 +230,7 @@ class KokoroTTS:
         model: str = "kokoro",
         response_format: str = "wav",
         timeout: float = 180.0,
-        phonetic: Optional[Dict[str, str]] = None,
+        phonetic: dict[str, str] | None = None,
         session=None,
     ):
         self.url = url
@@ -238,7 +241,7 @@ class KokoroTTS:
         self.phonetic = phonetic
         self._session = session
 
-    def synthesize(self, text: str, out_path: Path) -> Optional[float]:
+    def synthesize(self, text: str, out_path: Path) -> float | None:
         import requests
 
         spoken = apply_phonetic(text, self.phonetic)
@@ -267,7 +270,7 @@ HOMEBREW_ESPEAK = {
 }
 
 
-def use_homebrew_espeak(env=None, exists: Callable[[str], bool] = os.path.exists) -> Dict[str, str]:
+def use_homebrew_espeak(env=None, exists: Callable[[str], bool] = os.path.exists) -> dict[str, str]:
     """Point espeak at Homebrew's ``espeak-ng`` when it's installed.
 
     Sets each variable in :data:`HOMEBREW_ESPEAK` that is unset in ``env``
@@ -283,8 +286,8 @@ def use_homebrew_espeak(env=None, exists: Callable[[str], bool] = os.path.exists
 def _load_mlx_model(model: str):
     use_homebrew_espeak()
     try:
-        from mlx_audio.tts.utils import load_model
         import misaki.en  # noqa: F401 — Kokoro's English G2P; fail now, not mid-reel
+        from mlx_audio.tts.utils import load_model
     except ImportError as e:
         raise ImportError(
             "MLXKokoroTTS needs mlx-audio and misaki (Apple Silicon only): "
@@ -338,9 +341,9 @@ class MLXKokoroTTS:
         model: str = "mlx-community/Kokoro-82M-bf16",
         speed: float = 1.0,
         lang_code: str = "a",
-        phonetic: Optional[Dict[str, str]] = None,
-        loader: Optional[Callable[[str], object]] = None,
-        fixes: Optional[Dict[str, str]] = KOKORO_FIXES,
+        phonetic: dict[str, str] | None = None,
+        loader: Callable[[str], object] | None = None,
+        fixes: dict[str, str] | None = KOKORO_FIXES,
         split_pattern: str = SENTENCES,
     ):
         self.voice = voice
@@ -372,13 +375,13 @@ class GTTSTTS:
     """Google Translate TTS via the ``gtts`` package. Emits MP3 (duration unknown)."""
 
     def __init__(self, lang: str = "en", tld: str = "com", slow: bool = False,
-                 phonetic: Optional[Dict[str, str]] = None):
+                 phonetic: dict[str, str] | None = None):
         self.lang = lang
         self.tld = tld
         self.slow = slow
         self.phonetic = phonetic
 
-    def synthesize(self, text: str, out_path: Path) -> Optional[float]:
+    def synthesize(self, text: str, out_path: Path) -> float | None:
         from gtts import gTTS
 
         spoken = apply_phonetic(text, self.phonetic)
@@ -395,8 +398,8 @@ class MacSayTTS:
     ``rate`` is words per minute (``say`` defaults to about 175).
     """
 
-    def __init__(self, voice: str = "Samantha", rate: Optional[int] = None,
-                 sample_rate: int = 24000, phonetic: Optional[Dict[str, str]] = None,
+    def __init__(self, voice: str = "Samantha", rate: int | None = None,
+                 sample_rate: int = 24000, phonetic: dict[str, str] | None = None,
                  runner=None):
         self.voice = voice
         self.rate = rate
@@ -404,7 +407,7 @@ class MacSayTTS:
         self.phonetic = phonetic
         self.runner = runner
 
-    def synthesize(self, text: str, out_path: Path) -> Optional[float]:
+    def synthesize(self, text: str, out_path: Path) -> float | None:
         import subprocess
 
         cmd = ["say", "-v", self.voice, "-o", str(out_path),

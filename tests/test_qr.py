@@ -69,7 +69,8 @@ def test_the_tile_sits_centred_under_a_centred_stack_with_a_one_line_label_and_b
             const qr = r(document.querySelector('.qr'));
             const label = r(document.querySelector('.qr > div:last-child'));
             return {top: r(document.querySelector('h1')).top, bottom: qr.bottom, x: qr.left + qr.width / 2,
-                    labelHeight: label.height, labelWidth: label.width, tileWidth: r(document.querySelector('.qr svg')).width};
+                    labelHeight: label.height, labelWidth: label.width,
+                    tileWidth: r(document.querySelector('.qr svg')).width};
         }""")
         browser.close()
     assert abs(box["x"] - 640) < 2  # centred

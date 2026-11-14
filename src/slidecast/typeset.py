@@ -60,7 +60,8 @@ LONE_WORD_JS = """() => {
     const space = text.lastIndexOf(' ');
     if (space < 1 || text.length - space < 2) continue;
     const at = (a, b) => { const r = document.createRange(); r.setStart(node, a); r.setEnd(node, b);
-                           const rects = r.getClientRects(); return rects.length ? rects[rects.length - 1].top : null; };
+                           const rects = r.getClientRects();
+                           return rects.length ? rects[rects.length - 1].top : null; };
     const last = at(space + 1, text.length), before = at(space - 1, space);
     if (last !== null && before !== null && last - before > 2) found.push(text.trim());
   }

@@ -20,7 +20,7 @@ import shutil
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any
 
 # Bump to retire every entry when a change here or in video.py alters what a key doesn't see.
 VERSION = 1
@@ -37,7 +37,7 @@ _SIZE = re.compile(r"^(\d+)([GgMm]?)$")
 _UNITS = {"": 1, "M": 1024 ** 2, "G": 1024 ** 3}
 
 
-def default_dir(env=None) -> Optional[Path]:
+def default_dir(env=None) -> Path | None:
     """The cache directory from the environment, or None when ``SLIDECAST_CACHE`` turns it off."""
     env = os.environ if env is None else env
     if "SLIDECAST_CACHE" in env:
@@ -97,12 +97,12 @@ def tts_identity(tts) -> str:
 class Cache:
     """Narration audio (a directory per line) and built segments (a file each) under one root."""
 
-    def __init__(self, root: Union[str, Path], max_bytes: Optional[int] = None):
+    def __init__(self, root: str | Path, max_bytes: int | None = None):
         self.root = Path(root)
         self.max_bytes = max_bytes_from_env() if max_bytes is None else max_bytes
 
     @classmethod
-    def of(cls, setting: Union[str, Path, bool, None, "Cache"]) -> Optional["Cache"]:
+    def of(cls, setting: str | Path | bool | Cache | None) -> Cache | None:
         """The cache a ``cache=`` argument asks for: None is the default, False is off, a path is that directory."""
         if isinstance(setting, Cache):
             return setting
@@ -115,7 +115,7 @@ class Cache:
 
     # -- narration: audio file + its measured duration --------------------------------------------------------
 
-    def get_audio(self, key: str, dest: Path) -> Optional[tuple]:
+    def get_audio(self, key: str, dest: Path) -> tuple | None:
         """Restore a narration into ``dest``; return ``(duration,)`` (duration may be None), or None on a miss."""
         entry = self.root / "audio" / key
         try:
@@ -126,7 +126,7 @@ class Cache:
         _touch(entry)
         return (meta["duration"],)
 
-    def put_audio(self, key: str, src: Path, duration: Optional[float]) -> None:
+    def put_audio(self, key: str, src: Path, duration: float | None) -> None:
         final = self.root / "audio" / key
         if final.exists():
             return
