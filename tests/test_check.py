@@ -53,6 +53,7 @@ def test_cuts_measure_quiet_before_and_after():
 def test_cli_check_flags_a_change_that_cuts_in(monkeypatch, capsys):
     found = [chk.Cut(5.0, 1.2, 0.4), chk.Cut(9.0, 0.1, 0.3)]
     monkeypatch.setattr(chk, "check", lambda video: found)
+    monkeypatch.setattr(chk, "check_ends", lambda video: [])
     assert cli.main(["check", "out.mp4", "--min-gap", "0.6"]) == 1
     out = capsys.readouterr().out
     assert "9.00 s   quiet 0.10 s before" in out and "← cuts in" in out

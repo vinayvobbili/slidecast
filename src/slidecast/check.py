@@ -27,7 +27,9 @@ BAND = (1000, 4000)
 DROP = 18.0         # dB under the loud frames that still counts as speech
 PEAK = 10.0         # dB under the loud frames that a burst of speech must reach (a bed's swell doesn't)
 JOIN = 4            # speech frames this few (0.2 s) apart or closer belong to one burst
-SCENE = 0.05       # ffmpeg's scene score for a slide change
+MAX_OPEN = 4.0      # seconds the first card may run before any narration
+TAIL = 0.5          # seconds at the end that must not be black
+SCENE = 0.05      # ffmpeg's scene score for a slide change
 
 
 @dataclass(frozen=True)
@@ -111,3 +113,32 @@ def cuts(changes: Sequence[float], talking: Sequence[bool], hop: float = HOP) ->
 
 def check(video: Path, *, ffmpeg: Optional[str] = None, drop: float = DROP) -> List[Cut]:
     return cuts(slide_changes(video, ffmpeg=ffmpeg), speech(speech_levels(video, ffmpeg=ffmpeg), drop))
+
+
+def black_tail(video: Path, *, ffmpeg: Optional[str] = None, tail: float = TAIL) -> bool:
+    """True when the last ``tail`` seconds contain black frames (ffmpeg blackdetect). The threshold is near true
+    black, so a dark brand card doesn't count."""
+    ffmpeg = ffmpeg or find_ffmpeg()
+    res = subprocess.run([ffmpeg, "-v", "info", "-sseof", f"-{tail}", "-i", str(video), "-an", "-vf",
+                          "blackdetect=d=0.04:pic_th=0.98:pix_th=0.02", "-f", "null", "-"],
+                         capture_output=True, text=True, check=True)
+    return "black_start" in res.stderr
+
+
+def first_speech(video: Path, *, ffmpeg: Optional[str] = None) -> Optional[float]:
+    """Seconds until the first narration, or None when the reel has none."""
+    talking = speech(speech_levels(video, ffmpeg=ffmpeg))
+    return next((i * HOP for i, t in enumerate(talking) if t), None)
+
+
+def check_ends(video: Path, *, ffmpeg: Optional[str] = None, max_open: float = MAX_OPEN,
+               tail: float = TAIL) -> List[str]:
+    """What is wrong with the reel's ends, one line each (empty when it is fine): the last ``tail`` seconds have
+    black frames, or the first card runs over ``max_open`` seconds before any narration."""
+    problems = []
+    if black_tail(video, ffmpeg=ffmpeg, tail=tail):
+        problems.append(f"the last {tail:g} s has black frames (end on the title card, not black)")
+    start = first_speech(video, ffmpeg=ffmpeg)
+    if start is not None and start > max_open:
+        problems.append(f"the first card runs {start:.1f} s before any narration (limit {max_open:g} s)")
+    return problems
