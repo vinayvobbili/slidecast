@@ -74,26 +74,41 @@ def test_youtube_copy_is_twice_the_size_at_30_fps(tmp_path):
     assert probe_duration(out, ffmpeg=FFMPEG) == pytest.approx(1.0, abs=0.15)
 
 
-@pytest.mark.parametrize("image", ["good", "unreadable"])
-def test_a_still_segment_ends_on_time_even_when_the_image_is_unreadable(tmp_path, image):
-    """An unreadable image (a stub PNG) yields no video frames; the unbounded -af apad then wrote silence forever."""
-    from slidecast import build_segment
-
+def _still(tmp_path, image_bytes=None):
     png = tmp_path / "s001.png"
-    if image == "good":
+    if image_bytes is None:
         _make(["-f", "lavfi", "-i", "color=c=navy:s=64x64", "-frames:v", "1"], png)
     else:
-        png.write_bytes(b"\x89PNG")
-    wav = _make(["-f", "lavfi", "-i", "sine=f=440:d=0.5"], tmp_path / "s001.wav")
-    out = tmp_path / "s001.mkv"
-    try:
-        build_segment(png, wav, out, width=64, height=64, fps=25, duration=1.0, ffmpeg=FFMPEG,
-                      runner=lambda cmd, **kw: subprocess.run(cmd, **{**kw, "timeout": 30}))
-    except subprocess.CalledProcessError:
-        assert image == "unreadable"  # it may fail, but it must end
-    assert not out.exists() or out.stat().st_size < 5_000_000
-    if image == "good":
-        assert probe_duration(out, ffmpeg=FFMPEG) == pytest.approx(1.0, abs=0.1)
+        png.write_bytes(image_bytes)
+    return png, _make(["-f", "lavfi", "-i", "sine=f=440:d=0.5"], tmp_path / "s001.wav"), tmp_path / "s001.mkv"
+
+
+def test_a_still_segment_ends_on_time(tmp_path):
+    from slidecast import build_segment
+
+    png, wav, out = _still(tmp_path)
+    build_segment(png, wav, out, width=64, height=64, fps=25, duration=1.0, ffmpeg=FFMPEG)
+    assert probe_duration(out, ffmpeg=FFMPEG) == pytest.approx(1.0, abs=0.1)
+    assert out.stat().st_size < 1_000_000
+
+
+def test_a_stub_image_is_refused_before_ffmpeg_loops_on_it(tmp_path):
+    """A 4-byte stub PNG made ffmpeg spin forever (no frames, so -t never arrives) and write until the disk filled."""
+    from slidecast import build_segment
+
+    png, wav, out = _still(tmp_path, b"\x89PNG")
+    with pytest.raises(ValueError, match="too small to be an image"):
+        build_segment(png, wav, out, width=64, height=64, fps=25, duration=1.0, ffmpeg=FFMPEG)
+
+
+def test_an_image_ffmpeg_cannot_decode_is_killed_at_the_time_limit(tmp_path, monkeypatch):
+    """What the size check can't see, a corrupt image of a plausible size, still ends: killed, with a clear error."""
+    from slidecast import FFmpegTimeout, build_segment
+
+    monkeypatch.setattr("slidecast.ffmpeg.MIN_TIMEOUT", 3.0)
+    png, wav, out = _still(tmp_path, b"\x89PNG\r\n\x1a\n" + b"\x00" * 64)
+    with pytest.raises(FFmpegTimeout, match="killed"):
+        build_segment(png, wav, out, width=64, height=64, fps=25, duration=0.1, ffmpeg=FFMPEG)
 
 
 class ToneTTS:

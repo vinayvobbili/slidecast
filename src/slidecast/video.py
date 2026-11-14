@@ -48,6 +48,21 @@ def _segment_audio(out: Path, audio_bitrate: str) -> list[str]:
     return ["-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2"]
 
 
+# The smallest real image file (a PNG's signature and header chunk alone are 33 bytes).
+MIN_IMAGE_BYTES = 33
+
+
+def _require_readable_image(image: Path) -> None:
+    """ffmpeg looping an image it can't decode spins at full speed and never ends (no frames, so no ``-t`` to hit):
+    stop a stub or empty file before it starts."""
+    try:
+        size = Path(image).stat().st_size
+    except OSError:
+        return  # missing: ffmpeg reports that itself
+    if size < MIN_IMAGE_BYTES:
+        raise ValueError(f"{image} is {size} bytes, too small to be an image: ffmpeg would loop on it forever")
+
+
 def build_segment(
     image: Path,
     audio: Path,
@@ -70,6 +85,8 @@ def build_segment(
     for that many seconds before the audio starts (``duration`` includes it).
     """
     ffmpeg = ffmpeg or find_ffmpeg()
+    if runner is None:  # a real run; a stub image is fine for the fake runners that tests pass in
+        _require_readable_image(image)
     runner = runner or subprocess.run
     cmd: list[str] = [
         ffmpeg, "-y", "-loglevel", "error",
