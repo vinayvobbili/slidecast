@@ -145,6 +145,8 @@ A pattern, not a template: use the parts that fit. A reel that opens with `title
    big where the problem turns into the solution. Then the walkthrough.
 4. **End on the title card, never black.** The reel closes on a reprise of the title card with the tagline under
    it, held `closing_seconds` (4 s), with no fade to black. Opt out with `Reel(close_on_title=False)`.
+   `Reel(closing_qr="https://example.com/app", closing_qr_label="Get it here")` adds a QR code of the link,
+   bottom-right on a white tile with a label under it, so a viewer can scan it from the screen.
 5. **Accent text is a gradient, never pure white.** `Reel(theme=Theme(accent_gradient=...))`, lavender to pink by
    default, paints the tagline; `theme.accent("text")` and `theme.accent_css()` do the same in your own slides.
    Pure white is for body text.

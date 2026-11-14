@@ -25,6 +25,7 @@ from . import video as _video
 from .cache import Cache
 from .ffmpeg import find_ffmpeg
 from . import check as _check
+from . import qr as _qr
 from .models import Animation, Clip, Music, Segment, Slide, Sting, Theme
 from .render import PlaywrightRenderer, Renderer
 from .tts import SilentTTS, TTSProvider
@@ -83,6 +84,8 @@ class Reel:
         close_on_title: With a :meth:`title_card`, end the reel on a reprise of it (with the tagline under it, if
             :meth:`tagline` was called) instead of on the last slide. False opts out.
         closing_seconds: How long that closing card holds, silent.
+        closing_qr / closing_qr_label: A URL to show as a QR code on the closing card (bottom-right, on a white
+            tile so phones scan it), with a short label under it.
     """
 
     width: int = 1920
@@ -100,6 +103,8 @@ class Reel:
     theme: Theme = field(default_factory=Theme)
     close_on_title: bool = True
     closing_seconds: float = 4.0
+    closing_qr: Optional[str] = None
+    closing_qr_label: str = ""
     _title: Optional[str] = field(default=None, init=False, repr=False)
     _tagline: Optional[str] = field(default=None, init=False, repr=False)
 
@@ -168,6 +173,9 @@ class Reel:
             tag = (f'<p class="tagline" style="position:relative;margin:30px 0 0;font:700 40px/1.3 system-ui,'
                    f'sans-serif;text-align:center;{self.theme.accent_css()}">{self._tagline}</p>')
             html = html.replace("</body>", tag + "</body>", 1) if "</body>" in html else html + tag
+        if self.closing_qr:
+            tile = _qr.qr_tile(self.closing_qr, self.closing_qr_label, body_color=self.theme.body_color)
+            html = html.replace("</body>", tile + "</body>", 1) if "</body>" in html else html + tile
         return Slide(html=html, min_duration=self.closing_seconds)
 
     def _animation_clip(self, animation: Animation, renderer, work: Path, index: int, ffmpeg: str) -> Clip:
