@@ -8,6 +8,31 @@ from pathlib import Path
 from typing import Optional, Union
 
 
+@dataclass(frozen=True)
+class Theme:
+    """The reel's look for the cards it writes itself (the tagline and the closing card).
+
+    Attributes:
+        accent_gradient: A CSS gradient for accent text: the tagline and any other line that should stand out.
+            Accent text is never pure white; white is for body text only.
+        background: The card background.
+        body_color: Body text colour (an off-white, not ``#fff``).
+    """
+
+    accent_gradient: str = "linear-gradient(90deg, #b9a8ff, #f08cff)"  # lavender to pink
+    background: str = "#0e0d1f"
+    body_color: str = "#f4f3ff"
+
+    def accent_css(self) -> str:
+        """CSS declarations that paint an element's text with the accent gradient."""
+        return (f"background: {self.accent_gradient}; -webkit-background-clip: text; "
+                "background-clip: text; color: transparent;")
+
+    def accent(self, text: str) -> str:
+        """``text`` as an inline span in the accent gradient, for use inside your own slide HTML."""
+        return f'<span style="{self.accent_css()}">{text}</span>'
+
+
 @dataclass
 class Slide:
     """One frame of a reel.

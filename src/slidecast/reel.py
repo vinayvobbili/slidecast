@@ -24,7 +24,8 @@ from . import sound as _sound
 from . import video as _video
 from .cache import Cache
 from .ffmpeg import find_ffmpeg
-from .models import Animation, Clip, Music, Segment, Slide, Sting
+from . import check as _check
+from .models import Animation, Clip, Music, Segment, Slide, Sting, Theme
 from .render import PlaywrightRenderer, Renderer
 from .tts import SilentTTS, TTSProvider
 
@@ -37,6 +38,18 @@ def _on_frames(seconds: float, fps: int) -> float:
     sound is exact, so a segment of any other length leaves the two a fraction of a frame apart, and the concat adds
     that up over a long reel (the voice ahead of or behind its slides by seconds)."""
     return math.ceil(seconds * fps - 1e-6) / fps
+
+
+class ReelCheckError(ValueError):
+    """The rendered reel failed its end checks (black at the end, or a long silent opening)."""
+
+
+_TAGLINE_HTML = """<!doctype html><html><head><meta charset="utf-8"><style>
+  html, body {{ margin: 0; width: 100%; height: 100%; }}
+  body {{ background: {bg}; display: flex; align-items: center; justify-content: center; text-align: center; }}
+  h1 {{ margin: 0; padding: 0 8%; font: 800 76px/1.2 -apple-system, system-ui, sans-serif; letter-spacing: -0.02em;
+        {accent} }}
+</style></head><body><h1>{text}</h1></body></html>"""
 
 
 # Called as on_progress(index, total, segment) before each segment is built.
@@ -66,6 +79,10 @@ class Reel:
             never talks over the intro.
         loudness: Integrated-loudness target for the final audio in LUFS (e.g.
             -16 for web). None leaves the level alone.
+        theme: A :class:`Theme` for the cards the reel writes (the tagline and the closing card).
+        close_on_title: With a :meth:`title_card`, end the reel on a reprise of it (with the tagline under it, if
+            :meth:`tagline` was called) instead of on the last slide. False opts out.
+        closing_seconds: How long that closing card holds, silent.
     """
 
     width: int = 1920
@@ -80,6 +97,11 @@ class Reel:
     lead_in: Optional[float] = None
     loudness: Optional[float] = None
     slides: List[Segment] = field(default_factory=list)
+    theme: Theme = field(default_factory=Theme)
+    close_on_title: bool = True
+    closing_seconds: float = 4.0
+    _title: Optional[str] = field(default=None, init=False, repr=False)
+    _tagline: Optional[str] = field(default=None, init=False, repr=False)
 
     def add(self, html: str, narration: str = "", *,
             tail_pad: float = 0.0, min_duration: float = 0.0) -> Slide:
@@ -108,6 +130,45 @@ class Reel:
                               tail_pad=tail_pad, min_duration=min_duration)
         self.slides.append(animation)
         return animation
+
+    def title_card(self, html: str, seconds: float = 3.0) -> Slide:
+        """Open the reel with a silent title card for about ``seconds``, before the story starts.
+
+        Call it first. The card is reprised at the end (see ``close_on_title``), so the reel never ends on black.
+        """
+        if self.slides:
+            raise ValueError("title_card must be the first slide")
+        if seconds <= 0:
+            raise ValueError("seconds must be positive")
+        self._title = html
+        return self.add(html, min_duration=seconds)
+
+    def tagline(self, text: str, *, tail_pad: float = 0.4) -> Slide:
+        """The turn from problem to solution: ``text`` is spoken and shown big, in the theme's accent gradient.
+
+        It is shown again under the title on the closing card.
+        """
+        if not text.strip():
+            raise ValueError("tagline text must be non-empty")
+        self._tagline = text
+        html = _TAGLINE_HTML.format(text=text, bg=self.theme.background, accent=self.theme.accent_css())
+        return self.add(html, text, tail_pad=tail_pad)
+
+    def problem(self, html: str, narration: str = "", *, seconds: float, tail_pad: float = 0.4) -> Animation:
+        """Show the problem before the solution: an animated scene (see :meth:`add_animated`) that runs ahead of the
+        payoff. Follow it with :meth:`tagline`, then the walkthrough."""
+        return self.add_animated(html, narration, seconds=seconds, tail_pad=tail_pad)
+
+    def _closing_slide(self) -> Optional[Slide]:
+        """The title card again, with the tagline under it, or None when the reel doesn't close on it."""
+        if self._title is None or not self.close_on_title:
+            return None
+        html = self._title
+        if self._tagline:
+            tag = (f'<p class="tagline" style="position:relative;margin:30px 0 0;font:700 40px/1.3 system-ui,'
+                   f'sans-serif;text-align:center;{self.theme.accent_css()}">{self._tagline}</p>')
+            html = html.replace("</body>", tag + "</body>", 1) if "</body>" in html else html + tag
+        return Slide(html=html, min_duration=self.closing_seconds)
 
     def _animation_clip(self, animation: Animation, renderer, work: Path, index: int, ffmpeg: str) -> Clip:
         """Render ``animation`` to a silent clip in ``work`` and return it as a :class:`Clip`."""
@@ -209,6 +270,7 @@ class Reel:
         music_fade: Optional[float] = None,
         cache=None,
         on_cached: Optional[ProgressHook] = None,
+        verify: Optional[bool] = None,
     ) -> Path:
         """Render the whole reel to ``out_path`` (an .mp4). Returns the path.
 
@@ -228,6 +290,11 @@ class Reel:
         slides that changed. ``cache`` is a directory for it, False to turn it off, or None for the default
         (``SLIDECAST_CACHE``, else ``~/.cache/slidecast``). ``on_cached`` is called like ``on_progress`` for each
         segment taken from the cache instead of built.
+
+        A reel with a :meth:`title_card` ends on a reprise of it (``close_on_title``). ``verify`` runs
+        :func:`slidecast.check.check_ends` on the result and raises :class:`ReelCheckError` if the last 0.5 s has
+        black frames or the first card runs over 4 s before any narration. None (the default) verifies reels that
+        have a title card; True or False forces it.
         """
         if not self.slides:
             raise ValueError("Reel has no slides or clips")
@@ -248,11 +315,14 @@ class Reel:
         work = Path(workdir) if workdir else Path(tempfile.mkdtemp(prefix="slidecast_"))
         work.mkdir(parents=True, exist_ok=True)
         # A reel of clips alone never needs a browser.
-        needs_browser = any(isinstance(s, (Slide, Animation)) for s in self.slides)
+        plan = list(self.slides)
+        if closing := self._closing_slide():
+            plan.append(closing)
+        needs_browser = any(isinstance(s, (Slide, Animation)) for s in plan)
         renderer = (self.renderer or PlaywrightRenderer()) if needs_browser else contextlib.nullcontext()
 
         segments: List[Path] = []
-        total = len(self.slides)
+        total = len(plan)
         # When each line is spoken, so a ducking bed can dip under exactly those.
         plan_duck = bed is not None and bed.duck
         speech: List[tuple] = []
@@ -264,7 +334,7 @@ class Reel:
             lead_in = self.lead_in
             if lead_in is None:
                 lead_in = _video.probe_duration(intro.file, ffmpeg=ffmpeg) if intro else 0.0
-            slides = list(self.slides)
+            slides = list(plan)
             if outro is not None and slides[-1].narration.strip():
                 # The outro ends with the reel, so hold the last slide long enough
                 # for it to start after the last word rather than over it.
@@ -349,6 +419,10 @@ class Reel:
                 )
             else:
                 _video.concat(segments, out_path, ffmpeg=ffmpeg)
+            if verify if verify is not None else self._title is not None:
+                problems = _check.check_ends(out_path, ffmpeg=ffmpeg)
+                if problems:
+                    raise ReelCheckError(f"{out_path}: " + "; ".join(problems))
             if make_poster:
                 # Past an opt-in fade-in, or the poster is a dark frame.
                 image = _video.poster(out_path, out_path.with_name(out_path.stem + "_poster.jpg"),

@@ -133,10 +133,42 @@ In Python, `music_bed(length, bpm, seed)`, `intro_sting(seed)` and
 saves one. The intro's ring-out runs to 5.1 s; a `lead_in` of about 2 s lets
 the voice start over its tail instead of waiting for silence.
 
+### Story shape
+
+A pattern, not a template: use the parts that fit. A reel that opens with `title_card` gets the rest by default.
+
+1. **Title card, briefly.** `reel.title_card(html, seconds=3)` shows the opening card silent for about 3 s (only
+   the intro sting plays), then the story starts. Set `lead_in=0` so nothing waits on the sting.
+2. **Problem before solution.** `reel.problem(html, narration, seconds=...)` runs an animated scene (it is
+   `add_animated`) that shows the pain before the payoff: the same form retyped forty times, a queue growing.
+3. **Tagline at the turn.** `reel.tagline("Your paperwork shouldn't be a full-time job.")` is spoken and shown
+   big where the problem turns into the solution. Then the walkthrough.
+4. **End on the title card, never black.** The reel closes on a reprise of the title card with the tagline under
+   it, held `closing_seconds` (4 s), with no fade to black. Opt out with `Reel(close_on_title=False)`.
+5. **Accent text is a gradient, never pure white.** `Reel(theme=Theme(accent_gradient=...))`, lavender to pink by
+   default, paints the tagline; `theme.accent("text")` and `theme.accent_css()` do the same in your own slides.
+   Pure white is for body text.
+6. **A check at the end of the build.** `render` runs `check_ends` on a reel with a title card and raises
+   `ReelCheckError` if the last 0.5 s has black frames or the first card runs over 4 s before any narration
+   (`verify=False` skips it, `verify=True` forces it). The same check is `slidecast check out.mp4`.
+
+```python
+from slidecast import Reel, Theme
+
+reel = Reel(width=1280, height=720, tts=..., intro="compose", lead_in=0, theme=Theme())
+reel.title_card(TITLE_HTML)                                                  # silent, 3 s
+reel.problem(PROBLEM_HTML, "Forty forms, every one asking the same things.", seconds=12)
+reel.tagline("Your paperwork shouldn't be a full-time job.")                 # the turn
+reel.add(PAYOFF_HTML, "Initech's form, filled in seconds.")
+reel.render("out.mp4")                                                       # closes on the title card, checked
+```
+
 ## CLI
 
 ```
 slidecast render reel.yaml -o out.mp4 --poster
+slidecast check out.mp4 [--min-gap 0.6]   # exit 1: black in the last 0.5 s, a first card over 4 s before any voice,
+                                          # or (with --min-gap) a slide change that cuts the voice off
 ```
 
 ```yaml

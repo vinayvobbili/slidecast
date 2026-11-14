@@ -24,6 +24,9 @@ Model:
     # file="compose" synthesizes the bed or sting at render time (numpy)
     Reel(width, height, fps, tts=..., renderer=..., music=..., intro=..., outro=...,
          lead_in=None, loudness=None).add(...).add_clip(...).add_animated(...).render(out)
+    Theme(accent_gradient=..., background=..., body_color=...)   # accent text is a gradient, never pure white
+    Reel.title_card(html, seconds=3) / .problem(html, narration, seconds=) / .tagline(text)
+    # a reel with a title card closes on it (tagline under it) and is checked: no black end, a short silent open
 Text-to-speech (``synthesize(text, path) -> seconds | None``):
     KokoroTTS  — any OpenAI-compatible /v1/audio/speech endpoint
     MLXKokoroTTS — Kokoro in-process on Apple Silicon (mlx-audio), no server
@@ -43,8 +46,8 @@ ffmpeg steps (injectable runner, for direct use/testing):
 """
 
 from .ffmpeg import FFmpegNotFound, find_ffmpeg
-from .models import Animation, Clip, Music, Segment, Slide, Sting
-from .reel import Reel
+from .models import Animation, Clip, Music, Segment, Slide, Sting, Theme
+from .reel import Reel, ReelCheckError
 from .render import ChromeBinaryRenderer, PlaywrightRenderer, Renderer
 from .sound import compose, intro_sting, music_bed, outro_sting, write_wav
 from .tts import (
@@ -76,7 +79,9 @@ __all__ = [
     "Segment",
     "Music",
     "Sting",
+    "Theme",
     "Reel",
+    "ReelCheckError",
     "Renderer",
     "PlaywrightRenderer",
     "ChromeBinaryRenderer",
