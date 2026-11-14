@@ -58,6 +58,23 @@ reel.add_clip("fill.webm", "Then fill the form.", tail_pad=0.6)
 Record the clips any way you like: Playwright's `record_video_dir`, a
 screenshot sequence encoded with ffmpeg, or a screen recorder.
 
+### Animated slides
+
+Write a page with CSS animations and `add_animated` turns it into a clip. Every animation is paused and stepped
+frame by frame (the Web Animations API), so the result is the same on every run. If the narration is longer than
+`seconds`, the last frame holds.
+
+```python
+reel.add_animated("""<!doctype html><style>
+  body { background: #0b1020; margin: 0 }
+  .bar { height: 40px; width: 0; background: #7c5cff; animation: grow 3s ease-out forwards }
+  @keyframes grow { to { width: 100% } }
+</style><div class="bar"></div>""", "Watch the bar fill.", seconds=3)
+```
+
+Start animations at page load, with CSS (keyframes, `animation-delay`). Anything driven by script timers won't
+move. It needs a renderer with an `animate` method; `PlaywrightRenderer` has one.
+
 ### Music and stings
 
 Lay a music bed under the narration, and bookend the reel with short stings:

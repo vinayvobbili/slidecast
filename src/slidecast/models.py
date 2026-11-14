@@ -66,7 +66,39 @@ class Clip:
             raise ValueError("tail_pad and min_duration must be non-negative")
 
 
-Segment = Union[Slide, Clip]
+@dataclass
+class Animation:
+    """An HTML page whose CSS animations play out as a clip, narrated like a slide.
+
+    The page is rendered frame by frame (every animation paused and stepped to each frame's time, so the result is
+    the same on every run), then handled like a :class:`Clip`: if the narration runs longer than ``seconds``, the
+    last frame holds until the voice finishes (plus ``tail_pad``).
+
+    Attributes:
+        html: A complete, self-contained HTML document. Use CSS animations or transitions started at load (the Web
+            Animations API steps them); nothing driven by script timers or ``requestAnimationFrame`` will move.
+        narration: What the voice reads over it. Empty => it plays silent.
+        seconds: How long the animation runs, from page load.
+        tail_pad: Seconds of silence after the narration, as for :class:`Slide`.
+        min_duration: A floor on the segment length; the last frame holds to reach it.
+    """
+
+    html: str
+    narration: str = ""
+    seconds: float = 3.0
+    tail_pad: float = 0.0
+    min_duration: float = 0.0
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.html, str) or not self.html.strip():
+            raise ValueError("Animation.html must be a non-empty HTML string")
+        if self.seconds <= 0:
+            raise ValueError("Animation.seconds must be positive")
+        if self.tail_pad < 0 or self.min_duration < 0:
+            raise ValueError("tail_pad and min_duration must be non-negative")
+
+
+Segment = Union[Slide, Clip, Animation]
 
 # A Music or Sting ``file`` of "compose" asks the reel to synthesize one (see
 # :mod:`slidecast.sound`) into its work directory at render time.

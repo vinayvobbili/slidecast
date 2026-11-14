@@ -24,7 +24,7 @@ from . import sound as _sound
 from . import video as _video
 from .cache import Cache
 from .ffmpeg import find_ffmpeg
-from .models import Clip, Music, Segment, Slide, Sting
+from .models import Animation, Clip, Music, Segment, Slide, Sting
 from .render import PlaywrightRenderer, Renderer
 from .tts import SilentTTS, TTSProvider
 
@@ -96,6 +96,32 @@ class Reel:
                     tail_pad=tail_pad, min_duration=min_duration)
         self.slides.append(clip)
         return clip
+
+    def add_animated(self, html: str, narration: str = "", *, seconds: float,
+                     tail_pad: float = 0.0, min_duration: float = 0.0) -> Animation:
+        """Append an HTML page whose CSS animations play for ``seconds``, narrated like a clip.
+
+        The animations are stepped frame by frame at the reel's fps, so the result is deterministic. The last
+        frame holds if the narration runs longer than ``seconds``.
+        """
+        animation = Animation(html=html, narration=narration, seconds=seconds,
+                              tail_pad=tail_pad, min_duration=min_duration)
+        self.slides.append(animation)
+        return animation
+
+    def _animation_clip(self, animation: Animation, renderer, work: Path, index: int, ffmpeg: str) -> Clip:
+        """Render ``animation`` to a silent clip in ``work`` and return it as a :class:`Clip`."""
+        if not hasattr(renderer, "animate"):
+            raise TypeError(f"{type(renderer).__name__} can't render animations: it needs an animate() method "
+                            "(PlaywrightRenderer has one)")
+        frames = work / f"a{index:03d}_frames"
+        renderer.animate(animation.html, frames, width=self.width, height=self.height,
+                         fps=self.fps, seconds=animation.seconds)
+        video = work / f"a{index:03d}.mp4"
+        _video.encode_frames(frames, video, fps=self.fps, ffmpeg=ffmpeg)
+        shutil.rmtree(frames, ignore_errors=True)
+        return Clip(video=video, narration=animation.narration,
+                    tail_pad=animation.tail_pad, min_duration=animation.min_duration)
 
     def _speak(self, text: str, audio: Path, cache: Optional[Cache]) -> Optional[float]:
         """Narrate ``text`` into ``audio`` (from the cache when this voice has said it before); return its length."""
@@ -222,7 +248,7 @@ class Reel:
         work = Path(workdir) if workdir else Path(tempfile.mkdtemp(prefix="slidecast_"))
         work.mkdir(parents=True, exist_ok=True)
         # A reel of clips alone never needs a browser.
-        needs_browser = any(isinstance(s, Slide) for s in self.slides)
+        needs_browser = any(isinstance(s, (Slide, Animation)) for s in self.slides)
         renderer = (self.renderer or PlaywrightRenderer()) if needs_browser else contextlib.nullcontext()
 
         segments: List[Path] = []
@@ -252,6 +278,8 @@ class Reel:
                     seg = work / f"s{i:03d}.mkv"  # PCM audio, so the concat can't drift (video.AAC_SUFFIXES)
                     # The first segment holds silent through the lead-in (the intro).
                     delay = lead_in if i == 1 else 0.0
+                    if isinstance(slide, Animation):
+                        slide = self._animation_clip(slide, r, work, i, ffmpeg)
                     if isinstance(slide, Clip):
                         duration, hold = self._clip_duration(slide, audio, ffmpeg, cache)
                         whole = _on_frames(duration + delay, self.fps)

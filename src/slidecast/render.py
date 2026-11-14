@@ -9,6 +9,7 @@ Two ship in the box:
 
 * :class:`PlaywrightRenderer` — the default. Needs the ``[playwright]`` extra and
   a one-time ``playwright install chromium``. Launches Chromium once per reel.
+  It can also step a page's CSS animations frame by frame (``animate``, used by ``Reel.add_animated``).
 * :class:`ChromeBinaryRenderer` — drives an existing Chrome/Chromium binary by
   path via ``--headless --screenshot``. No Python browser dep; handy when a
   Chrome is already on the box.
@@ -18,6 +19,7 @@ Bring your own by matching the same context-manager + ``screenshot`` shape.
 
 from __future__ import annotations
 
+import math
 import subprocess
 import tempfile
 from pathlib import Path
@@ -29,6 +31,12 @@ class Renderer(Protocol):
     def __enter__(self) -> "Renderer": ...
     def __exit__(self, *exc) -> None: ...
     def screenshot(self, html: str, out_path: Path, *, width: int, height: int) -> None: ...
+
+
+# Pause every animation and transition on the page, so each frame can set its clock.
+_PAUSE_ANIMATIONS = "document.getAnimations({subtree: true}).forEach(a => a.pause())"
+# Put every animation at ``t`` milliseconds from the page load.
+_SEEK_ANIMATIONS = "t => document.getAnimations({subtree: true}).forEach(a => { a.currentTime = t })"
 
 
 class PlaywrightRenderer:
@@ -93,6 +101,32 @@ class PlaywrightRenderer:
             page.screenshot(path=str(out_path))
         finally:
             page.context.close()
+
+
+    def animate(self, html: str, out_dir: Path, *, width: int, height: int, fps: int, seconds: float) -> int:
+        """Write the page's animation as ``f00000.png``, ``f00001.png``... in ``out_dir``; return the frame count.
+
+        Every animation is paused and set to each frame's time before the shot, so the frames never depend on how
+        fast the machine renders. Frame ``k`` shows the page ``k / fps`` seconds after load.
+        """
+        if self._browser is None:
+            raise RuntimeError("PlaywrightRenderer must be used as a context manager")
+        out_dir = Path(out_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        frames = max(1, math.ceil(seconds * fps - 1e-6))
+        page = self._browser.new_context(
+            viewport={"width": width, "height": height},
+            device_scale_factor=self.device_scale_factor,
+        ).new_page()
+        try:
+            page.set_content(html, wait_until=self.wait_until)
+            page.evaluate(_PAUSE_ANIMATIONS)
+            for k in range(frames):
+                page.evaluate(_SEEK_ANIMATIONS, k * 1000.0 / fps)
+                page.screenshot(path=str(out_dir / f"f{k:05d}.png"))
+        finally:
+            page.context.close()
+        return frames
 
 
 class ChromeBinaryRenderer:

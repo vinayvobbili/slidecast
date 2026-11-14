@@ -95,6 +95,27 @@ def build_segment(
     return out
 
 
+def encode_frames(
+    frames: Path,
+    out: Path,
+    *,
+    fps: int,
+    ffmpeg: Optional[str] = None,
+    runner=None,
+) -> Path:
+    """Encode a folder of ``f00000.png``-style frames (see ``PlaywrightRenderer.animate``) into a silent H.264 clip."""
+    ffmpeg = ffmpeg or find_ffmpeg()
+    runner = runner or subprocess.run
+    cmd: List[str] = [
+        ffmpeg, "-y", "-loglevel", "error",
+        "-framerate", str(fps), "-i", str(Path(frames) / "f%05d.png"),
+        "-c:v", "libx264", "-crf", "14", "-pix_fmt", "yuv420p",
+        str(out),
+    ]
+    runner(cmd, check=True)
+    return out
+
+
 def build_clip_segment(
     clip: Path,
     audio: Path,

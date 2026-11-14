@@ -18,11 +18,12 @@ Pieces (all swappable)
 Model:
     Slide(html, narration="", tail_pad=0.0, min_duration=0.0)
     Clip(video, narration="", tail_pad=0.0, min_duration=0.0)
+    Animation(html, narration="", seconds=3.0, tail_pad=0.0, min_duration=0.0)  # CSS animations -> clip
     Music(file, volume=0.22, fade_in=1.0, fade_out=2.0, duck=True)
     Sting(file, volume=None)   # intro 0.75 / outro 0.7 when None
     # file="compose" synthesizes the bed or sting at render time (numpy)
     Reel(width, height, fps, tts=..., renderer=..., music=..., intro=..., outro=...,
-         lead_in=None, loudness=None).add(...).add_clip(...).render(out)
+         lead_in=None, loudness=None).add(...).add_clip(...).add_animated(...).render(out)
 Text-to-speech (``synthesize(text, path) -> seconds | None``):
     KokoroTTS  — any OpenAI-compatible /v1/audio/speech endpoint
     MLXKokoroTTS — Kokoro in-process on Apple Silicon (mlx-audio), no server
@@ -42,7 +43,7 @@ ffmpeg steps (injectable runner, for direct use/testing):
 """
 
 from .ffmpeg import FFmpegNotFound, find_ffmpeg
-from .models import Clip, Music, Segment, Slide, Sting
+from .models import Animation, Clip, Music, Segment, Slide, Sting
 from .reel import Reel
 from .render import ChromeBinaryRenderer, PlaywrightRenderer, Renderer
 from .sound import compose, intro_sting, music_bed, outro_sting, write_wav
@@ -71,6 +72,7 @@ __version__ = "0.5.0"
 __all__ = [
     "Slide",
     "Clip",
+    "Animation",
     "Segment",
     "Music",
     "Sting",

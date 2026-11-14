@@ -28,6 +28,19 @@ class FakeRenderer:
         Path(out_path).write_bytes(b"\x89PNG")
 
 
+class FakeAnimator(FakeRenderer):
+    """A renderer that can also step animations: writes a stub PNG per frame."""
+
+    def animate(self, html, out_dir, *, width, height, fps, seconds):
+        out_dir = Path(out_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        frames = max(1, round(seconds * fps))
+        for k in range(frames):
+            (out_dir / f"f{k:05d}.png").write_bytes(b"\x89PNG")
+        self.calls.append({"html": html, "animate": True, "frames": frames, "fps": fps, "width": width})
+        return frames
+
+
 class FakeRunner:
     """Stand-in for subprocess.run that captures argv lists, runs nothing.
 
