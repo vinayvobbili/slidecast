@@ -180,3 +180,26 @@ def test_open_records_an_mp4_that_starts_after_the_page_loaded(browser, tmp_path
     probe = subprocess.run([FFMPEG, "-i", str(out)], capture_output=True, text=True).stderr
     assert "Video: h264" in probe and "640x360" in probe
     assert "Duration: 00:00:0" in probe
+
+
+@pytest.mark.skipif(FFMPEG is None, reason="ffmpeg not available")
+def test_a_scaled_page_fills_the_whole_frame_with_no_grey_band(browser, tmp_path):
+    """Playwright never scales a recording up: a 640x360 page recorded into a 960x540 frame left a band (the bug)."""
+    out = tmp_path / "scene.mp4"
+    with Recorder.open(browser, URL, out, width=640, height=360, size=(960, 540), scale=1.5, settle=0.2,
+                       pace=0.3) as rec:
+        rec.hold_until(1.0)
+    probe = subprocess.run([FFMPEG, "-i", str(out)], capture_output=True, text=True).stderr
+    assert "960x540" in probe
+    still = tmp_path / "last.png"
+    subprocess.run([FFMPEG, "-nostdin", "-v", "error", "-y", "-sseof", "-0.3", "-i", str(out), "-frames:v", "1",
+                    "-vf", "crop=40:40:900:480", str(still)], check=True)
+    pix = subprocess.run([FFMPEG, "-nostdin", "-v", "error", "-i", str(still), "-f", "rawvideo", "-pix_fmt", "gray",
+                          "-"], capture_output=True).stdout
+    assert min(pix) > 200  # the bottom-right corner is the white page, not the recorder's grey
+
+
+def test_a_frame_of_another_aspect_ratio_is_refused(browser, tmp_path):
+    with pytest.raises(ValueError, match="aspect ratio"):
+        with Recorder.open(browser, URL, tmp_path / "x.mp4", width=1000, height=864, size=(1920, 1080)):
+            pass

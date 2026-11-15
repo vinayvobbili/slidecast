@@ -266,15 +266,20 @@ class Recorder:
         """A recorded page: opens `url` in a fresh context, calls :meth:`begin` once it has settled, and on leaving
         writes the video to `out` (an MP4 trimmed to start at :meth:`begin`). `out` None records nothing.
 
-        The page is `width` x `height` CSS px at `scale`, recorded at `size`: 1536 x 864 at 1.25 fills 1920 x 1080.
+        The page is `width` x `height` CSS px at `scale`, and the MP4 is `size`: 1536 x 864 at 1.25 fills 1920 x 1080.
+        Playwright records the viewport at its CSS size (it never scales a recording up, so a bigger record size only
+        adds a grey band), so the recording is made at `width` x `height` and scaled to `size` on saving; the two must
+        have the same aspect ratio or the frame would not be filled exactly.
         """
+        if abs(width * size[1] - height * size[0]) > max(width, height):
+            raise ValueError(f"the {width}x{height} page and the {size[0]}x{size[1]} frame differ in aspect ratio")
         tmp = Path(tempfile.mkdtemp(prefix="slidecast-rec-"))
         own = hasattr(browser, "new_context")  # a Browser: its own context; else a context made by the caller
         if own:
             options = {"viewport": {"width": width, "height": height}, "device_scale_factor": scale,
                        "color_scheme": color_scheme}
             if out is not None:
-                options.update(record_video_dir=str(tmp), record_video_size={"width": size[0], "height": size[1]})
+                options.update(record_video_dir=str(tmp), record_video_size={"width": width, "height": height})
             context = browser.new_context(**options)
         else:  # e.g. a persistent context with an extension: it was launched with the video and scale options
             context = browser
@@ -303,7 +308,7 @@ class Recorder:
                 page.close()
             try:
                 if video is not None and not failed:
-                    save_video(Path(video.path()), Path(out), start=rec.started)
+                    save_video(Path(video.path()), Path(out), start=rec.started, size=size)
             finally:
                 shutil.rmtree(tmp, ignore_errors=True)
 
@@ -473,11 +478,13 @@ class Recorder:
         return path
 
 
-def save_video(src: Path, out: Path, *, start: float = 0.0, fps: int = 25, ffmpeg: str | None = None) -> Path:
-    """Re-encode a Playwright recording as an H.264 MP4 that starts `start` seconds in."""
+def save_video(src: Path, out: Path, *, start: float = 0.0, fps: int = 25, ffmpeg: str | None = None,
+               size: tuple[int, int] | None = None) -> Path:
+    """Re-encode a Playwright recording as an H.264 MP4 that starts `start` seconds in, scaled to `size` if given."""
+    scale = f",scale={size[0]}:{size[1]}:flags=lanczos,setsar=1" if size else ""
     out.parent.mkdir(parents=True, exist_ok=True)
     cmd = [ffmpeg or find_ffmpeg(), "-v", "error", "-y", "-ss", f"{max(0.0, start):.3f}", "-i", str(src),
-           "-vf", f"fps={fps}", "-c:v", "libx264", "-preset", "medium", "-crf", "16", "-pix_fmt", "yuv420p",
+           "-vf", f"fps={fps}{scale}", "-c:v", "libx264", "-preset", "medium", "-crf", "16", "-pix_fmt", "yuv420p",
            "-movflags", "+faststart", "-an", str(out)]
     subprocess.run(cmd, check=True, timeout=600)
     return out
