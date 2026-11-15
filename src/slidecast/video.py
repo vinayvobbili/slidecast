@@ -48,6 +48,8 @@ def _segment_audio(out: Path, audio_bitrate: str) -> list[str]:
     return ["-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2"]
 
 
+_REAL_RUN = subprocess.run
+
 # The smallest real image file (a PNG's signature and header chunk alone are 33 bytes).
 MIN_IMAGE_BYTES = 33
 
@@ -85,9 +87,9 @@ def build_segment(
     for that many seconds before the audio starts (``duration`` includes it).
     """
     ffmpeg = ffmpeg or find_ffmpeg()
-    if runner is None:  # a real run; a stub image is fine for the fake runners that tests pass in
-        _require_readable_image(image)
     runner = runner or subprocess.run
+    if runner is _REAL_RUN:  # a stub image is fine for the fake runners that tests pass in or patch in
+        _require_readable_image(image)
     cmd: list[str] = [
         ffmpeg, "-y", "-loglevel", "error",
         "-loop", "1", "-i", str(image),
