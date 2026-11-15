@@ -47,6 +47,7 @@ ffmpeg steps (injectable runner, for direct use/testing):
 
 from .ffmpeg import FFmpegNotFound, FFmpegTimeout, find_ffmpeg
 from .models import Animation, Clip, Music, Segment, Slide, Sting, Theme
+from .recorder import Clipped, ClippedError, Recorder, check_framing, find_clipped
 from .reel import Reel, ReelCheckError
 from .render import ChromeBinaryRenderer, PlaywrightRenderer, Renderer
 from .sound import compose, intro_sting, music_bed, outro_sting, write_wav
@@ -78,6 +79,8 @@ __all__ = [
     "Animation",
     "ChromeBinaryRenderer",
     "Clip",
+    "Clipped",
+    "ClippedError",
     "FFmpegNotFound",
     "FFmpegTimeout",
     "KokoroTTS",
@@ -85,6 +88,7 @@ __all__ = [
     "MacSayTTS",
     "Music",
     "PlaywrightRenderer",
+    "Recorder",
     "Reel",
     "ReelCheckError",
     "Renderer",
@@ -98,8 +102,10 @@ __all__ = [
     "apply_phonetic",
     "build_clip_segment",
     "build_segment",
+    "check_framing",
     "compose",
     "concat",
+    "find_clipped",
     "find_ffmpeg",
     "intro_sting",
     "master",

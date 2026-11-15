@@ -58,6 +58,31 @@ reel.add_clip("fill.webm", "Then fill the form.", tail_pad=0.6)
 Record the clips any way you like: Playwright's `record_video_dir`, a
 screenshot sequence encoded with ffmpeg, or a screen recorder.
 
+### Recording a web page like a person
+
+`slidecast.recorder.Recorder` drives a Playwright page for a screen recording. A cursor glides to each target before it
+acts, every click shows a ripple, a drag draws a dotted path, and scrolling lands the target below any sticky header.
+The overlay is injected into the page, so it is in the recording and nowhere else.
+
+```python
+from playwright.sync_api import sync_playwright
+from slidecast.recorder import Recorder
+
+with sync_playwright() as p:
+    browser = p.chromium.launch()
+    with Recorder.open(browser, "http://127.0.0.1:8765/#settings", "settings.mp4") as rec:
+        rec.click("text=Save settings")      # glide, ripple, click
+        rec.type("#name", "Jordan")
+        rec.drag("#card", "#done")           # the path follows the cursor
+        rec.hold_until(8.0)                  # a scene as long as its narration
+reel.add_clip("settings.mp4", "Save your settings.")
+```
+
+After every action the recorder runs the framing check, `find_clipped(page)`, and raises `ClippedError` when the frame's
+edge slices a visible element in two: any `position: sticky` or `fixed` element (a tab bar cut off after a scroll), a
+button, input, heading or tab. Use `scroll_to(target)` rather than a raw scroll. `Recorder(page, shots=DIR)` saves a
+screenshot after each action instead of recording, to check a scene's framing cheaply; `check=False` opts out.
+
 ### Animated slides
 
 Write a page with CSS animations and `add_animated` turns it into a clip. Every animation is paused and stepped
