@@ -275,6 +275,17 @@ depends on anything else.
 Pass `phonetic={r"\bSOC\b": "sock"}` to rewrite how tricky tokens are spoken
 without changing the on-screen text.
 
+Plural acronyms: Kokoro says "PDFs", "APIs", "W-2s" and "1099s" right when they are written as one word, but a
+spelled-out plural ("P D Fs", "P D F s", "A P Is") comes out as the letters and then the letter S ("P D F S").
+`KokoroTTS` and `MLXKokoroTTS` therefore join a spelled-out plural back into its word before speaking it
+(`normalize_acronym_plurals("P D Fs") == "PDFs"`), also when your own `phonetic` rule produced the spelling. The
+captions keep what you wrote. Turn it off with `acronym_plurals=False`.
+
+For a word the voice still gets wrong (it says "TINs" as the word "tins"), give a pronunciation dictionary:
+`pronunciations={"TINs": "tee eye ens"}`, or under `tts:` in YAML. Keys are whole words, matched exactly (case
+included), and the value is spoken as it is. It runs after the `phonetic` rules and the plural fix, and before the
+engine's own fixes, so it has the last word on a plural.
+
 Kokoro can't tell "read" (reed) from "read" (red), so slidecast picks from the words around it: red after
 have/has/had/'ve/'d/was/were/been/is/are/be/being/get/got/already/just/never/well/widely/recently/once, or
 with yesterday/ago/earlier/"last week" a few words after it (also re-read, proofread, misread); reed after

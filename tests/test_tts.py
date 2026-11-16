@@ -143,7 +143,91 @@ def test_mlx_kokoro_loads_once_and_writes_a_measured_wav(tmp_path):
 
 
 @pytest.mark.parametrize("line, said", [
-    ("We went live in production.", "We went [live](/lˈIv/) in production."),
+    ("A folder of P D Fs and a quiet worry.", "A folder of PDFs and a quiet worry."),
+    ("Scan the P D F s, then the P D F's.", "Scan the PDFs, then the PDFs."),
+    ("Call the A P Is and the U R Ls.", "Call the APIs and the URLs."),
+    ("Sort the W 2 s and the K 1 s.", "Sort the W2s and the K1s."),
+    ("Two O C R s and one PDF s.", "Two OCRs and one PDFs."),
+    ("(P D Fs) and \"C S Vs\".", "(PDFs) and \"CSVs\"."),
+    # already one word or hyphenated, singular, or not an acronym: unchanged
+    ("The PDFs, APIs, W-2s and 1099s are fine.", "The PDFs, APIs, W-2s and 1099s are fine."),
+    ("One P D F and an A P I.", "One P D F and an A P I."),
+    ("I A was here; A is a letter; step 1 2 s.", "I A was here; A is a letter; step 1 2 s."),
+    ("10 20 s and 1 2 s and a Tab's key.", "10 20 s and 1 2 s and a Tab's key."),
+])
+def test_normalize_acronym_plurals_rejoins_spelled_out_plurals(line, said):
+    from slidecast import normalize_acronym_plurals
+
+    assert normalize_acronym_plurals(line) == said
+
+
+def test_apply_pronunciations_replaces_whole_words_longest_first():
+    from slidecast import apply_pronunciations
+
+    words = {"SOCs": "socks", "SOC": "sock", "W-2s": "double you two s", "TIN": "T I N"}
+    assert apply_pronunciations("The SOCs and the SOC, W-2s, TIN.", words) == \
+        "The socks and the sock, double you two s, T I N."
+    assert apply_pronunciations("SOCial, soc, TINY and MySOC stay; so does re.sub's \\1.", words) == \
+        "SOCial, soc, TINY and MySOC stay; so does re.sub's \\1."
+    assert apply_pronunciations("text", None) == "text"
+    assert apply_pronunciations("text", {}) == "text"
+
+
+def test_kokoro_says_plural_acronyms_joined_and_honours_the_dictionary(tmp_path):
+    sent = []
+
+    class FakeResp:
+        content = b"ID3"
+
+        def raise_for_status(self):
+            pass
+
+    class FakeSession:
+        def post(self, url, json, timeout):
+            sent.append(json["input"])
+            return FakeResp()
+
+    tts = KokoroTTS(response_format="mp3", session=FakeSession(), phonetic={r"\bPDFs?\b": "P D Fs"},
+                    pronunciations={"SOCs": "socks"})
+    tts.synthesize("Scan the PDFs for the SOCs.", tmp_path / "a.mp3")  # the author's rule spells it out; it is rejoined
+    assert sent == ["Scan the PDFs for the socks."]
+    off = KokoroTTS(response_format="mp3", session=FakeSession(), acronym_plurals=False)
+    off.synthesize("Scan the P D Fs.", tmp_path / "b.mp3")
+    assert sent[-1] == "Scan the P D Fs."
+
+
+def test_mlx_kokoro_speaks_plural_acronyms_joined_but_the_captions_keep_them(tmp_path):
+    from slidecast import MLXKokoroTTS
+
+    model = _FakeKokoro()
+    tts = MLXKokoroTTS(phonetic={r"\bPDFs\b": "P D Fs"}, pronunciations={"SOCs": "socks", "PDFs": "pee dee effs"},
+                       loader=lambda name: model)
+    narration = "Scan the PDFs and the SOCs, then the W 2 s and the urls."
+    tts.synthesize(narration, tmp_path / "a.wav")
+    # the dictionary wins over the join; the engine fixes still run last
+    assert model.calls[0][0] == "Scan the pee dee effs and the socks, then the W2s and the URLs."
+    assert narration == "Scan the PDFs and the SOCs, then the W 2 s and the urls."
+
+    plain = _FakeKokoro()
+    MLXKokoroTTS(phonetic={r"\bPDFs\b": "P D Fs"}, loader=lambda name: plain).synthesize("The PDFs.",
+                                                                                         tmp_path / "b.wav")
+    assert plain.calls[0][0] == "The PDFs."
+    spelled = _FakeKokoro()
+    MLXKokoroTTS(acronym_plurals=False, loader=lambda name: spelled).synthesize("The P D Fs.", tmp_path / "c.wav")
+    assert spelled.calls[0][0] == "The P D Fs."
+
+
+def test_the_plural_fix_and_dictionary_change_the_cache_key():
+    from slidecast.cache import tts_identity
+    from slidecast.tts import MLXKokoroTTS
+
+    base = tts_identity(MLXKokoroTTS())
+    assert tts_identity(MLXKokoroTTS(acronym_plurals=False)) != base
+    assert tts_identity(MLXKokoroTTS(pronunciations={"SOCs": "socks"})) != base
+
+
+@pytest.mark.parametrize("line, said", [
+    ("We went live in production.","We went [live](/lˈIv/) in production."),
     ("Going live is a toggle.", "Going [live](/lˈIv/) is a toggle."),
     ("I ran it live on a copy.", "I ran it [live](/lˈIv/) on a copy."),
     ("The live runs used 2 min.", "The [live](/lˈIv/) runs used 2 min."),

@@ -67,6 +67,47 @@ def apply_phonetic(text: str, rules: dict[str, str] | None) -> str:
     return text
 
 
+# Kokoro says a plural acronym written as one word ("PDFs", "APIs", "1099s") naturally: the letters, then a z. A
+# spelled-out one ("P D Fs", "P D F s", "A P Is") comes out as the letters, then the letter S: "P D F S". So a
+# spelled-out plural is joined back into its word. Two shapes: single characters with spaces between them (two
+# or more, at least one a letter) then s, with or without an apostrophe; or one 2-6 character token and a stray
+# " s" ("PDF s"). Hyphenated forms ("W-2s") are already fine and left alone.
+_SPACED_PLURAL = re.compile(
+    r"(?<![\w'’-])(?:(?=[0-9 ]*[A-Z])(?P<spaced>[A-Z0-9](?: [A-Z0-9]){1,5}) ?['’]?"
+    r"|(?=[0-9]*[A-Z])(?P<token>[A-Z0-9]{2,6}) )s(?![\w'’-])"
+)
+
+
+def normalize_acronym_plurals(text: str) -> str:
+    """Join a spelled-out plural acronym back into one word, so the voice says "PDFs" and not "P D F S".
+
+    "P D Fs", "P D F s", "P D F's", "A P Is", "W 2 s" and "PDF s" become "PDFs", "APIs", "W2s". Anything
+    else, including a lone "A" or "I" before a word and a spelled-out singular ("P D F"), is left alone.
+    """
+    return _SPACED_PLURAL.sub(lambda m: (m.group("spaced") or m.group("token")).replace(" ", "") + "s", text)
+
+
+def apply_pronunciations(text: str, pronunciations: dict[str, str] | None) -> str:
+    """Replace whole words by what the voice should say, e.g. ``{"TINs": "tee eye ens"}``.
+
+    A plain dictionary, not regexes (that is ``phonetic``): each key is matched exactly, case and all, as a
+    whole word, the longest key first, and its value is spoken as written. The on-screen text is untouched.
+    """
+    if not pronunciations:
+        return text
+    keys = sorted(pronunciations, key=len, reverse=True)
+    pattern = r"(?<![\w-])(?:" + "|".join(re.escape(k) for k in keys) + r")(?![\w-])"
+    return re.sub(pattern, lambda m: pronunciations[m.group(0)], text)
+
+
+def _pronounce(text: str, phonetic, acronym_plurals: bool, pronunciations) -> str:
+    """What the voice is given before any engine fixes: the author's rules, the plural fix, then the dictionary."""
+    text = apply_phonetic(text, phonetic)
+    if acronym_plurals:
+        text = normalize_acronym_plurals(text)
+    return apply_pronunciations(text, pronunciations)
+
+
 # Words Kokoro says with the wrong one of their two sounds, fixed with misaki's own override, "[word](/phonemes/)".
 # Its tagger reads "went live" as the verb ("liv"): live after these words, or before a noun it describes, gets the
 # adjective's sound ("lyve"). "I live in" is left to the tagger, which gets the verb right.
@@ -232,6 +273,8 @@ class KokoroTTS:
         timeout: float = 180.0,
         phonetic: dict[str, str] | None = None,
         session=None,
+        acronym_plurals: bool = True,
+        pronunciations: dict[str, str] | None = None,
     ):
         self.url = url
         self.voice = voice
@@ -239,12 +282,14 @@ class KokoroTTS:
         self.response_format = response_format
         self.timeout = timeout
         self.phonetic = phonetic
+        self.acronym_plurals = acronym_plurals
+        self.pronunciations = pronunciations
         self._session = session
 
     def synthesize(self, text: str, out_path: Path) -> float | None:
         import requests
 
-        spoken = apply_phonetic(text, self.phonetic)
+        spoken = _pronounce(text, self.phonetic, self.acronym_plurals, self.pronunciations)
         poster = self._session or requests
         resp = poster.post(
             self.url,
@@ -328,6 +373,13 @@ class MLXKokoroTTS:
     ``fixes`` (default :data:`KOKORO_FIXES`) are rules like ``phonetic`` that
     every reel needs, applied after it; pass ``None`` to turn them off.
 
+    ``acronym_plurals`` (default on) joins a spelled-out plural acronym back
+    into one word ("P D Fs" to "PDFs", see :func:`normalize_acronym_plurals`),
+    which Kokoro says right. ``pronunciations`` is a ``{"SOCs": "socks"}``
+    dictionary of whole words and what to say instead (see
+    :func:`apply_pronunciations`). Both change the speech only, never the
+    on-screen text; they run after ``phonetic`` and before ``fixes``.
+
     ``split_pattern`` (default :data:`SENTENCES`) is where the text is cut
     before Kokoro phonemizes it.
 
@@ -345,12 +397,16 @@ class MLXKokoroTTS:
         loader: Callable[[str], object] | None = None,
         fixes: dict[str, str] | None = KOKORO_FIXES,
         split_pattern: str = SENTENCES,
+        acronym_plurals: bool = True,
+        pronunciations: dict[str, str] | None = None,
     ):
         self.voice = voice
         self.model = model
         self.speed = float(speed)
         self.lang_code = lang_code
         self.phonetic = phonetic
+        self.acronym_plurals = acronym_plurals
+        self.pronunciations = pronunciations
         self.fixes = fixes
         self.split_pattern = split_pattern
         self._loader = loader or _load_mlx_model
@@ -361,7 +417,8 @@ class MLXKokoroTTS:
             self._model = self._loader(self.model)
         chunks, rate = [], 24000
         for result in self._model.generate(
-            apply_phonetic(apply_phonetic(text, self.phonetic), self.fixes), voice=self.voice,
+            apply_phonetic(_pronounce(text, self.phonetic, self.acronym_plurals, self.pronunciations), self.fixes),
+            voice=self.voice,
             speed=self.speed, lang_code=self.lang_code, split_pattern=self.split_pattern,
         ):
             chunks.append(result.audio)

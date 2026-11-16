@@ -59,6 +59,8 @@ from .tts import (
     SilentTTS,
     TTSProvider,
     apply_phonetic,
+    apply_pronunciations,
+    normalize_acronym_plurals,
     wav_duration,
 )
 from .video import (
@@ -100,6 +102,7 @@ __all__ = [
     "Theme",
     "__version__",
     "apply_phonetic",
+    "apply_pronunciations",
     "build_clip_segment",
     "build_segment",
     "check_framing",
@@ -111,6 +114,7 @@ __all__ = [
     "master",
     "mix_music",
     "music_bed",
+    "normalize_acronym_plurals",
     "outro_sting",
     "poster",
     "probe_duration",
