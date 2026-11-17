@@ -504,3 +504,18 @@ def test_mlx_kokoro_really_speaks(tmp_path):
     assert 1.0 < seconds < 8
     assert wav_duration(tmp_path / "a.wav") == pytest.approx(seconds)
     assert tts.synthesize("Second line.", tmp_path / "b.wav") > 0.3  # model reused
+
+
+@pytest.mark.parametrize("line", [
+    "Acme asked for a CLEAR ID check before the interview.",
+    "A graph or ID references, not nested copies.",
+    "Show your ID. Then the IDs.",
+    "The ID, the IDs, and an ID-based lookup.",
+])
+def test_misaki_says_standalone_id_as_letters(line):
+    en = pytest.importorskip("misaki.en")
+    from slidecast.tts import KOKORO_FIXES
+
+    g2p = en.G2P(trf=False, british=False)
+    phonemes, _ = g2p(apply_phonetic(line, KOKORO_FIXES))
+    assert "ˈɪd" not in phonemes and "ˌIdˈi" in phonemes, phonemes
