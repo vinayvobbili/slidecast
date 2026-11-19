@@ -181,7 +181,10 @@ def _read_rules() -> dict[str, str]:
         past[rf"(?i)(?<=[\w'’]\s)\b{word}(?=(?:\s+[\w'’-]+){{0,4}}?\s+{_READ_PAST_TIME})"] = rf"[\g<w>](/{red}/)"
         present[rf"(?i)(?P<pre>{_READ_PRESENT_CUES}){word}"] = rf"\g<pre>[\g<w>](/{reed}/)"
         present[rf"(?im)(?:^|(?<=[.!?]\s)){word}"] = rf"[\g<w>](/{reed}/)"
-    return {**override, **past, **present}
+    # "read-only" and its kin are always the present, even after "is"/"are" ("the tools are read-only"), which would
+    # otherwise count as a past cue; these rules run first so the cue rules find the word already rewritten
+    compound = {r"(?i)(?P<w>read)(?=-(?:only|write|access)\b)": r"[\g<w>](/ɹˈid/)"}
+    return {**override, **compound, **past, **present}
 
 
 KOKORO_FIXES.update(_read_rules())

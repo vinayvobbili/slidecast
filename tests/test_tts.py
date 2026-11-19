@@ -368,6 +368,10 @@ def test_kokoro_fixes_say_read_in_the_past(line, said):
     ("Please re-read the notes.", "Please [re-read](/ɹˌiɹˈid/) the notes."),
     ("Proofread it before you misread it.", "[Proofread](/pɹˈufɹˌid/) it before you [misread](/mɪsɹˈid/) it."),
     ("The reader reads and spreads.", "The reader reads and spreads."),
+    ("The file is read-only.", f"The file is [read]({REED})-only."),
+    ("Tools are read-only and agents have read-write access.",
+     f"Tools are [read]({REED})-only and agents have [read]({REED})-write access."),
+    ("Read-only access, then I have read it.", f"[Read]({REED})-only access, then I have [read]({RED}) it."),
 ])
 def test_kokoro_fixes_say_read_in_the_present(line, said):
     from slidecast.tts import KOKORO_FIXES
