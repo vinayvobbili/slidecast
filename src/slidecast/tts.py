@@ -205,9 +205,21 @@ KOKORO_FIXES.update({
     r"(?i)(?<![\[\w])(?P<w>r[eé]sum[eé]s)\b": r"[\g<w>](/ɹˈɛzəmˌAz/)",
 })
 
+# "README" is two words, "read me" (present tense): Kokoro spells README out as letters and can't read lowercase
+# "readme" at all. Plurals and possessives take the "-z" ending. "README.md" keeps its extension, said "dot M D",
+# since the bracket override would otherwise swallow the ".md".
+_README, _READMES = "/ɹˈid mˈi/", "/ɹˈid mˈiz/"
+KOKORO_FIXES.update({
+    r"(?i)(?<![\[\w])(?P<w>readme)\.md\b": rf"[\g<w>]({_README}) dot M D",
+    r"(?i)(?<![\[\w])(?P<w>readme)(?P<s>['’]s)(?!\w)": rf"[\g<w>\g<s>]({_READMES})",
+    r"(?i)(?<![\[\w])(?P<w>readmes)\b": rf"[\g<w>]({_READMES})",
+    r"(?i)(?<![\[\w])(?P<w>readme)\b": rf"[\g<w>]({_README})",
+})
+
 
 # What each phoneme override above is called in the summary; one not listed shows as its phonemes.
-_SOUND_NAMES = {"ɹˈɛzəmˌA": "noun", "ɹˈɛzəmˌAz": "noun", "ɹəzˈum": "verb", "ɹəzˈumz": "verb", "lˈIv": "adjective",
+_SOUND_NAMES = {"ɹˈid mˈi": "read me", "ɹˈid mˈiz": "read me",
+                "ɹˈɛzəmˌA": "noun", "ɹˈɛzəmˌAz": "noun", "ɹəzˈum": "verb", "ɹəzˈumz": "verb", "lˈIv": "adjective",
                 "ɹˈɛd": "past", "ɹˌiɹˈɛd": "past", "pɹˈufɹˌɛd": "past", "mɪsɹˈɛd": "past",
                 "ɹˈid": "present", "ɹˌiɹˈid": "present", "pɹˈufɹˌid": "present", "mɪsɹˈid": "present"}
 _OVERRIDE = re.compile(r"\[([^\]]+)\]\(/([^/)]+)/\)")

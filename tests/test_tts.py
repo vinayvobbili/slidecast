@@ -390,6 +390,43 @@ def test_kokoro_fixes_take_an_authors_read_override(line, said):
     assert apply_phonetic(line, KOKORO_FIXES) == said
 
 
+README, READMES = "/ɹˈid mˈi/", "/ɹˈid mˈiz/"
+
+
+@pytest.mark.parametrize("line, said", [
+    ("See the README for details.", f"See the [README]({README}) for details."),
+    ("Open the Readme and the readme.", f"Open the [Readme]({README}) and the [readme]({README})."),
+    ("Two READMEs and some readmes.", f"Two [READMEs]({READMES}) and some [readmes]({READMES})."),
+    ("The README's first line, the README’s second.",
+     f"The [README's]({READMES}) first line, the [README’s]({READMES}) second."),
+    ("README.md and readme.md.", f"[README]({README}) dot M D and [readme]({README}) dot M D."),
+    ("A README-driven flow.", f"A [README]({README})-driven flow."),
+    ("Run `README` now.", f"Run `[README]({README})` now."),
+    ("The spreadmesh and readmeter tools.", "The spreadmesh and readmeter tools."),
+])
+def test_kokoro_fixes_say_readme_as_read_me(line, said):
+    from slidecast.tts import KOKORO_FIXES
+
+    assert apply_phonetic(line, KOKORO_FIXES) == said
+
+
+def test_readme_override_gives_misaki_the_phonemes_of_read_me():
+    en = pytest.importorskip("misaki.en")
+    from slidecast.tts import KOKORO_FIXES
+
+    g2p = en.G2P(trf=False, british=False, fallback=None)
+    spoken = g2p(apply_phonetic("The README and READMEs.", KOKORO_FIXES))[0]
+    assert "ɹˈid mˈi" in spoken and "ɹˈid mˈiz" in spoken
+    assert g2p("read me")[0].split()[0] == "ɹˈid"  # the same sound misaki gives the two plain words
+
+
+def test_pronunciation_summary_names_readme():
+    from slidecast.tts import KOKORO_FIXES, pronunciation_summary
+
+    assert pronunciation_summary(["The README and the READMEs."], KOKORO_FIXES) == (
+        "pronunciation: readmes→read me ×1, readme→read me ×1")
+
+
 def test_pronunciation_summary_counts_each_word_a_rule_gave_a_sound():
     from slidecast.tts import KOKORO_FIXES, pronunciation_summary
 
