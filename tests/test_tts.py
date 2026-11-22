@@ -560,3 +560,28 @@ def test_misaki_says_standalone_id_as_letters(line):
     g2p = en.G2P(trf=False, british=False)
     phonemes, _ = g2p(apply_phonetic(line, KOKORO_FIXES))
     assert "ˈɪd" not in phonemes and "ˌIdˈi" in phonemes, phonemes
+
+
+@pytest.mark.parametrize("written, spoken", [
+    ("MRR@10 is the metric.", "MRR at 10 is the metric."),
+    ("MRR@10, with NDCG@10 beside it.", "MRR at 10, with NDCG at 10 beside it."),
+    ("A top-k of 50.", "A top-K of 50."),
+    ("Recall at k, and precision at k, differ.", "Recall at K, and precision at K, differ."),
+])
+def test_misaki_says_ranking_metrics_the_way_a_person_does(written, spoken):
+    """"@10" is "at 10" and a lone k is the letter, with no rule needed; MRR and NDCG are spelled out letter by
+    letter (checked below), so "MRR@10" is heard as "M R R at ten"."""
+    en = pytest.importorskip("misaki.en")
+    from slidecast.tts import KOKORO_FIXES
+
+    g2p = en.G2P(trf=False, british=False)
+    assert g2p(apply_phonetic(written, KOKORO_FIXES))[0] == g2p(spoken)[0]
+
+
+@pytest.mark.parametrize("word, letters", [("MRR", "ˌɛmˌɑɹˈɑɹ"), ("NDCG", "ˌɛndˌisˌiʤˈi")])
+def test_misaki_spells_mrr_and_ndcg_as_letters(word, letters):
+    en = pytest.importorskip("misaki.en")
+    from slidecast.tts import KOKORO_FIXES
+
+    g2p = en.G2P(trf=False, british=False)
+    assert letters in g2p(apply_phonetic(f"The {word}@10 went up.", KOKORO_FIXES))[0]
