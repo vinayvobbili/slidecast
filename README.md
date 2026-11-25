@@ -248,7 +248,10 @@ count, or a whole number with a `G` or `M` suffix, such as `SLIDECAST_CACHE_MAX=
 A value it can't read stops the render with an error. Raise the cap when several long videos should keep their
 clips, so editing one card doesn't re-render all of it. To turn it off, set `SLIDECAST_CACHE=off`, pass
 `--no-cache` to `slidecast render`, or call `reel.render(out, cache=False)`. `--cache DIR` / `cache=DIR` use
-another directory. A custom TTS provider is keyed on its public attributes; give it a `cache_key` if its output
+another directory. An entry the current render used is never pruned. `slidecast cache` shows what the cache
+holds, per folder (`--status`, the default); `slidecast cache --prune --max-size 5G` trims it to a cap of your
+choosing now (without `--max-size`, to `SLIDECAST_CACHE_MAX`), and `--dry-run` lists what would go without
+deleting anything. A custom TTS provider is keyed on its public attributes; give it a `cache_key` if its output
 depends on anything else.
 
 ## The swappable pieces

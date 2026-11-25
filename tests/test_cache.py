@@ -178,6 +178,7 @@ def test_prune_removes_the_least_recently_used_over_the_cap(tmp_path):
         cache.put_segment(name, src)
         stamp = time.time() - 1000 + n * 100
         os.utime(tmp_path / "segment" / f"{name}.mkv", (stamp, stamp))
+    cache = Cache(tmp_path, max_bytes=250)  # a later render: the entries above are not its own
     assert cache.get_segment("mid", tmp_path / "out.mkv")  # a hit makes "mid" the newest
     assert cache.prune() == 1
     left = sorted(p.name for p in (tmp_path / "segment").iterdir())
@@ -278,7 +279,7 @@ def test_prune_honours_the_env_cap(tmp_path, monkeypatch):
         cache.put_segment(name, src)
         stamp = time.time() - 1000 + n * 100
         os.utime(tmp_path / "segment" / f"{name}.mkv", (stamp, stamp))
-    assert cache.prune() == 1
+    assert Cache(tmp_path).prune() == 1  # a later render
     assert sorted(p.name for p in (tmp_path / "segment").iterdir()) == ["mid.mkv", "new.mkv"]
 
     monkeypatch.setenv("SLIDECAST_CACHE_MAX", "1G")
@@ -309,3 +310,86 @@ def test_a_render_prunes_an_oversized_cache_before_it_starts(runner, tmp_path):
     assert seen[0] is True  # the first prune ran before the render built anything
     assert not old.exists()
     assert len(seen) == 2  # and again at the end
+
+
+def _fill(cache, names, size=100):
+    """Segments of ``size`` bytes, the first name the oldest by 100 s each."""
+    for n, name in enumerate(names):
+        src = cache.root / f"{name}.src"
+        src.parent.mkdir(parents=True, exist_ok=True)
+        src.write_bytes(b"x" * size)
+        cache.put_segment(name, src)
+        src.unlink()
+        stamp = time.time() - 1000 + n * 100
+        os.utime(cache.root / "segment" / f"{name}.mkv", (stamp, stamp))
+    cache._used.clear()  # as if a later render opened this cache
+
+
+def test_status_counts_entries_and_bytes_per_folder(tmp_path):
+    cache = Cache(tmp_path / "cache", max_bytes=10_000)
+    assert cache.status() == {"audio": (0, 0), "segment": (0, 0)}
+    _fill(cache, ["a", "b"], size=100)
+    wav = tmp_path / "a.wav"
+    wav.write_bytes(b"y" * 40)
+    cache.put_audio("line", wav, 1.0)
+    status = cache.status()
+    assert status["segment"] == (2, 200)
+    assert status["audio"][0] == 1 and status["audio"][1] >= 40  # the audio and its meta.json
+
+
+def test_format_size_picks_a_unit():
+    assert cache_mod.format_size(300) == "300 B"
+    assert cache_mod.format_size(1536) == "1.5 KB"
+    assert cache_mod.format_size(5 * 1024 ** 2) == "5.0 MB"
+    assert cache_mod.format_size(12 * 1024 ** 3) == "12.0 GB"
+
+
+def test_evict_with_a_cap_of_its_own_and_dry_run_deletes_nothing(tmp_path):
+    cache = Cache(tmp_path / "cache", max_bytes=10_000)  # roomy: the default cap would remove nothing
+    _fill(cache, ["old", "mid", "new"])
+    plan = cache.evict(max_bytes=150, dry_run=True)
+    assert [(p.name, size) for p, size in plan] == [("old.mkv", 100), ("mid.mkv", 100)]
+    assert len(list((tmp_path / "cache" / "segment").iterdir())) == 3
+    done = cache.evict(max_bytes=150)
+    assert done == plan
+    assert [p.name for p in (tmp_path / "cache" / "segment").iterdir()] == ["new.mkv"]
+
+
+def test_dry_run_leaves_an_abandoned_write_alone(tmp_path):
+    cache = Cache(tmp_path, max_bytes=1000)
+    seg = tmp_path / "segment"
+    seg.mkdir()
+    old = seg / ".tmp-old"
+    old.write_bytes(b"x")
+    stamp = time.time() - 7200
+    os.utime(old, (stamp, stamp))
+    cache.evict(dry_run=True)
+    assert old.exists()
+    cache.evict()
+    assert not old.exists()
+
+
+def test_prune_never_deletes_what_this_render_used(tmp_path):
+    cache = Cache(tmp_path / "cache", max_bytes=150)
+    _fill(cache, ["old", "mid", "new"])
+    # The render hits the oldest entry (which also makes it the newest), then stores a segment of its own.
+    assert cache.get_segment("old", tmp_path / "out.mkv")
+    fresh = tmp_path / "fresh.mkv"
+    fresh.write_bytes(b"z" * 100)
+    cache.put_segment("fresh", fresh)
+    os.utime(tmp_path / "cache" / "segment" / "fresh.mkv", (1, 1))  # even if its clock says it is the oldest
+    cache.prune()
+    left = sorted(p.name for p in (tmp_path / "cache" / "segment").iterdir())
+    assert "old.mkv" in left and "fresh.mkv" in left  # over the cap, but nothing the render used went
+    assert "mid.mkv" not in left
+
+
+def test_a_hit_on_an_entry_that_already_exists_protects_it_too(tmp_path):
+    cache = Cache(tmp_path / "cache", max_bytes=100)
+    _fill(cache, ["old", "new"])
+    src = tmp_path / "again.mkv"
+    src.write_bytes(b"x" * 100)
+    cache.put_segment("old", src)  # already stored: put returns early, but the render still needs it
+    os.utime(tmp_path / "cache" / "segment" / "old.mkv", (1, 1))
+    cache.prune()
+    assert [p.name for p in (tmp_path / "cache" / "segment").iterdir()] == ["old.mkv"]

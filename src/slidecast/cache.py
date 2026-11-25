@@ -33,6 +33,8 @@ MAX_BYTES = 2 * 1024 ** 3
 # What the segment builders encode with. A change to video.py's settings goes here, so old segments aren't reused.
 ENCODE = "libx264/stillimage/yuv420p;pcm_s16le/48000/2;aac/192k"
 
+KINDS = ("audio", "segment")  # the cache's folders
+
 _OFF = {"", "0", "off", "false", "no", "none"}
 _STALE_TMP = 3600  # seconds before an abandoned temporary entry is swept
 _SIZE = re.compile(r"^(\d+)([GgMm]?)$")
@@ -49,15 +51,23 @@ def default_dir(env=None) -> Path | None:
     return Path(base) / "slidecast"
 
 
-def parse_size(text: str) -> int:
+def parse_size(text: str, name: str = "SLIDECAST_CACHE_MAX") -> int:
     """A size in bytes from ``12G``, ``800M`` or a plain byte count; ValueError for anything else, or zero."""
     m = _SIZE.match(text.strip())
     if not m or int(m.group(1)) == 0:
         raise ValueError(
-            f"SLIDECAST_CACHE_MAX={text!r} is not a cache size: use a byte count, or a whole number "
+            f"{name}={text!r} is not a cache size: use a byte count, or a whole number "
             "with a G or M suffix, such as 12G or 800M"
         )
     return int(m.group(1)) * _UNITS[m.group(2).upper()]
+
+
+def format_size(n: int) -> str:
+    """``n`` bytes as ``1.5 GB``, ``12.0 MB`` or ``300 B``."""
+    for unit, size in (("GB", 1024 ** 3), ("MB", 1024 ** 2), ("KB", 1024)):
+        if n >= size:
+            return f"{n / size:.1f} {unit}"
+    return f"{n} B"
 
 
 def max_bytes_from_env(env=None) -> int:
@@ -102,6 +112,9 @@ class Cache:
     def __init__(self, root: str | Path, max_bytes: int | None = None):
         self.root = Path(root)
         self.max_bytes = max_bytes_from_env() if max_bytes is None else max_bytes
+        # Entries this cache object has served or stored: a render's own, which a prune must never delete,
+        # however small the cap.
+        self._used: set[Path] = set()
 
     @classmethod
     def of(cls, setting: str | Path | bool | Cache | None) -> Cache | None:
@@ -126,10 +139,12 @@ class Cache:
         except (OSError, ValueError):
             return None
         _touch(entry)
+        self._used.add(entry)
         return (meta["duration"],)
 
     def put_audio(self, key: str, src: Path, duration: float | None) -> None:
         final = self.root / "audio" / key
+        self._used.add(final)
         if final.exists():
             return
         final.parent.mkdir(parents=True, exist_ok=True)
@@ -150,10 +165,12 @@ class Cache:
         except OSError:
             return False
         _touch(entry)
+        self._used.add(entry)
         return True
 
     def put_segment(self, key: str, src: Path) -> None:
         final = self.root / "segment" / f"{key}.mkv"
+        self._used.add(final)
         if final.exists() or not Path(src).exists():
             return
         final.parent.mkdir(parents=True, exist_ok=True)
@@ -167,30 +184,66 @@ class Cache:
 
     # -- upkeep -----------------------------------------------------------------------------------------------
 
+    def status(self) -> dict[str, tuple[int, int]]:
+        """``{folder: (entries, bytes)}`` for each of the audio and segment folders (abandoned writes left out)."""
+        out = {}
+        for kind in KINDS:
+            entries = self._entries(kind)
+            out[kind] = (len(entries), sum(size for _, size, _ in entries))
+        return out
+
+    def evict(self, max_bytes: int | None = None, dry_run: bool = False) -> list[tuple[Path, int]]:
+        """Delete least recently used entries until the cache fits in ``max_bytes`` (default: this cache's cap).
+
+        Returns each ``(path, bytes)`` deleted, oldest first; with ``dry_run`` it deletes nothing (not even an
+        abandoned write) and returns what it would. An entry this cache object served or stored is never
+        deleted, so a render's own segments survive a cap smaller than the render.
+        """
+        cap = self.max_bytes if max_bytes is None else max_bytes
+        entries = [e for kind in KINDS for e in self._entries(kind)]
+        if not dry_run:
+            self._sweep_stale()
+        total = sum(size for _, size, _ in entries)
+        gone = []
+        for _, size, entry in sorted(entries, key=lambda e: e[0]):
+            if total <= cap:
+                break
+            if entry in self._used:
+                continue
+            if not dry_run:
+                _remove(entry)
+            total -= size
+            gone.append((entry, size))
+        return gone
+
     def prune(self) -> int:
         """Delete least recently used entries until the cache fits in ``max_bytes``; return how many went."""
+        return len(self.evict())
+
+    def _entries(self, kind: str) -> list[tuple[float, int, Path]]:
+        """``(mtime, bytes, path)`` of each finished entry in a folder; a hit sets the mtime, so it is last use."""
+        folder = self.root / kind
+        found = []
+        for entry in folder.glob("*") if folder.is_dir() else ():
+            if entry.name.startswith(".tmp-"):
+                continue
+            try:
+                found.append((entry.stat().st_mtime, _size(entry), entry))
+            except OSError:
+                continue
+        return found
+
+    def _sweep_stale(self) -> None:
+        """Remove abandoned writes; a young one may be mid-write in another process."""
         now = time.time()
-        entries = []
-        for kind in ("audio", "segment"):
-            for entry in (self.root / kind).glob("*") if (self.root / kind).is_dir() else ():
+        for kind in KINDS:
+            folder = self.root / kind
+            for entry in folder.glob(".tmp-*") if folder.is_dir() else ():
                 try:
-                    age = now - entry.stat().st_mtime
-                    if entry.name.startswith(".tmp-"):
-                        if age > _STALE_TMP:  # an abandoned write; a young one may be mid-write elsewhere
-                            _remove(entry)
-                        continue
-                    entries.append((entry.stat().st_mtime, _size(entry), entry))
+                    if now - entry.stat().st_mtime > _STALE_TMP:
+                        _remove(entry)
                 except OSError:
                     continue
-        total = sum(size for _, size, _ in entries)
-        removed = 0
-        for _, size, entry in sorted(entries, key=lambda e: e[0]):
-            if total <= self.max_bytes:
-                break
-            _remove(entry)
-            total -= size
-            removed += 1
-        return removed
 
 
 def _place(src: Path, dest: Path) -> None:

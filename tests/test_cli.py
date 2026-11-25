@@ -1,5 +1,9 @@
 import json
+import os
 import subprocess
+import time
+
+import pytest
 
 from slidecast.cli import _build_reel, _build_tts, _load_spec, main
 from slidecast.tts import GTTSTTS, KokoroTTS, SilentTTS
@@ -204,3 +208,61 @@ def test_main_compose_writes_real_wavs(tmp_path, capsys):
     assert main(["compose", "-o", str(tmp_path), "--length", "2"]) == 0
     assert wav_duration(tmp_path / "music_bed.wav") == pytest.approx(2.0)
     assert (tmp_path / "intro_sting.wav").exists() and (tmp_path / "outro_sting.wav").exists()
+
+
+def _seed_cache(root, names=("old", "mid", "new"), size=100):
+    seg = root / "segment"
+    seg.mkdir(parents=True)
+    for n, name in enumerate(names):
+        path = seg / f"{name}.mkv"
+        path.write_bytes(b"x" * size)
+        stamp = time.time() - 1000 + n * 100
+        os.utime(path, (stamp, stamp))
+
+
+def test_cache_status_lists_each_folder(tmp_path, capsys, monkeypatch):
+    monkeypatch.delenv("SLIDECAST_CACHE_MAX", raising=False)
+    _seed_cache(tmp_path / "cache")
+    assert main(["cache", "--dir", str(tmp_path / "cache")]) == 0
+    out = capsys.readouterr().out
+    assert "audio" in out and "segment" in out and "3 entries" in out and "300 B" in out
+    assert "cap 2.0 GB" in out
+    assert len(list((tmp_path / "cache" / "segment").iterdir())) == 3  # status deletes nothing
+
+
+def test_cache_prune_dry_run_then_for_real(tmp_path, capsys):
+    root = tmp_path / "cache"
+    _seed_cache(root)
+    assert main(["cache", "--dir", str(root), "--prune", "--max-size", "150", "--dry-run"]) == 0
+    assert "would delete 2 least recently used entries, 200 B" in capsys.readouterr().out
+    assert len(list((root / "segment").iterdir())) == 3
+    assert main(["cache", "--dir", str(root), "--prune", "--max-size", "150"]) == 0
+    assert "deleted 2 least recently used entries" in capsys.readouterr().out
+    assert [p.name for p in (root / "segment").iterdir()] == ["new.mkv"]
+
+
+def test_cache_prune_cap_defaults_to_the_environment(tmp_path, monkeypatch):
+    root = tmp_path / "cache"
+    _seed_cache(root)
+    monkeypatch.setenv("SLIDECAST_CACHE_MAX", "250")
+    assert main(["cache", "--dir", str(root), "--prune"]) == 0
+    assert sorted(p.name for p in (root / "segment").iterdir()) == ["mid.mkv", "new.mkv"]
+
+
+def test_cache_prune_rejects_a_bad_size(tmp_path, capsys):
+    with pytest.raises(SystemExit) as stop:
+        main(["cache", "--dir", str(tmp_path), "--prune", "--max-size", "lots"])
+    assert stop.value.code == 2
+    assert "--max-size='lots'" in capsys.readouterr().err
+
+
+def test_cache_size_and_dry_run_need_prune(tmp_path, capsys):
+    with pytest.raises(SystemExit):
+        main(["cache", "--dir", str(tmp_path), "--dry-run"])
+    assert "go with --prune" in capsys.readouterr().err
+
+
+def test_cache_command_says_when_the_cache_is_off(capsys, monkeypatch):
+    monkeypatch.setenv("SLIDECAST_CACHE", "off")
+    assert main(["cache"]) == 0
+    assert "turned off" in capsys.readouterr().out

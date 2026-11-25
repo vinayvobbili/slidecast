@@ -3,6 +3,7 @@
     slidecast render reel.yaml -o out.mp4 --poster
     slidecast compose -o audio/ --length 95 --bpm 84 --seed 7
     slidecast youtube out.mp4
+    slidecast cache --prune --max-size 5G --dry-run
 
 A spec is YAML or JSON::
 
@@ -39,6 +40,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from . import cache as _cache
 from . import sound
 from .models import COMPOSE, Music, Sting
 from .reel import Reel
@@ -138,6 +140,30 @@ def _build_reel(spec: dict[str, Any], base: Path) -> Reel:
     return reel
 
 
+def cache_command(directory: Path | None, *, prune: bool = False, max_size: str | None = None,
+                  dry_run: bool = False, out=None) -> int:
+    """Print the cache's size per folder, then with ``prune`` delete (or with ``dry_run`` list) what's over the cap."""
+    out = out or sys.stdout
+    root = directory or _cache.default_dir()
+    if root is None:
+        print("The cache is turned off (SLIDECAST_CACHE=off).", file=out)
+        return 0
+    cap = _cache.parse_size(max_size, "--max-size") if max_size else None
+    cache = _cache.Cache(root, max_bytes=cap)
+    print(f"{root}  (cap {_cache.format_size(cache.max_bytes)})", file=out)
+    total = 0
+    for kind, (count, size) in cache.status().items():
+        print(f"  {kind:8} {count:6} entries  {_cache.format_size(size):>10}", file=out)
+        total += size
+    print(f"  {'total':8} {'':6}          {_cache.format_size(total):>10}", file=out)
+    if prune:
+        gone = cache.evict(dry_run=dry_run)
+        freed = sum(size for _, size in gone)
+        verb = "would delete" if dry_run else "deleted"
+        print(f"{verb} {len(gone)} least recently used entries, {_cache.format_size(freed)}", file=out)
+    return 0
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="slidecast", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -152,7 +178,16 @@ def main(argv=None) -> int:
                    help="reuse narration and segments from this directory (default: $SLIDECAST_CACHE, "
                         "else ~/.cache/slidecast)")
     r.add_argument("--no-cache", action="store_true", help="rebuild everything, and keep nothing")
-    c =sub.add_parser("compose", help="synthesize a music bed and intro/outro stings")
+    g = sub.add_parser("cache", help="show what the cache holds (--status, the default), or shrink it (--prune)")
+    g.add_argument("--dir", type=Path, default=None, metavar="DIR",
+                   help="the cache directory (default: $SLIDECAST_CACHE, else ~/.cache/slidecast)")
+    g.add_argument("--status", action="store_true", help="print the size of each folder and the cap")
+    g.add_argument("--prune", action="store_true",
+                   help="delete the least recently used entries until the cache fits the cap")
+    g.add_argument("--max-size", metavar="SIZE", default=None,
+                   help="the cap for this prune, such as 5G or 800M (default: $SLIDECAST_CACHE_MAX, else 2G)")
+    g.add_argument("--dry-run", action="store_true", help="with --prune: list what would go, delete nothing")
+    c = sub.add_parser("compose", help="synthesize a music bed and intro/outro stings")
     c.add_argument("-o", "--out", type=Path, required=True, metavar="DIR",
                    help="directory for music_bed.wav, intro_sting.wav, outro_sting.wav")
     c.add_argument("--length", type=float, default=95.0, metavar="SECONDS",
@@ -175,6 +210,14 @@ def main(argv=None) -> int:
     y.add_argument("-o", "--out", type=Path, default=None, help="output path (default: <name>-youtube.mp4)")
     y.add_argument("--scale", type=int, default=2, metavar="N", help="size multiple (default 2)")
     args = parser.parse_args(argv)
+
+    if args.cmd == "cache":
+        if (args.max_size or args.dry_run) and not args.prune:
+            parser.error("--max-size and --dry-run go with --prune")
+        try:
+            return cache_command(args.dir, prune=args.prune, max_size=args.max_size, dry_run=args.dry_run)
+        except ValueError as e:
+            parser.error(str(e))
 
     if args.cmd == "youtube":
         if args.scale < 1:
