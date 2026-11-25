@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Run what CI runs (ruff, then pytest on the oldest and newest supported Python), then the privacy audit, before a push.
+# Run what CI runs (ruff, then pytest on the newest supported Python; CI also covers 3.11), then the privacy audit, before a push.
 # Needs uv (https://docs.astral.sh/uv/), which downloads each Python on first use.
-# Each version gets its own environment (.venv-py3.10, ...), so the .venv you work in is left alone.
+# Each version gets its own environment (.venv-py3.13, ...), so the .venv you work in is left alone.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-# Keep these in step with the matrix in .github/workflows/tests.yml.
-VERSIONS=(3.10 3.13)
+# Locally just the newest Python; the matrix in .github/workflows/tests.yml also runs 3.11.
+VERSIONS=(3.13)
 
 for v in "${VERSIONS[@]}"; do
   echo "== Python $v"
