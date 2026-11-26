@@ -293,6 +293,12 @@ def heteronym_rules(rows: Iterable[tuple[str, str, str, str, str]] = HETERONYMS)
 
 KOKORO_FIXES.update(heteronym_rules())
 
+# A hyphen inside a word is spoken as a pause: "read-only" came out "read, only" (misaki turns the hyphen it does not
+# merge into a dash, and Kokoro stops at a dash: about 0.3 s). Said as two words with a space between them there is no
+# pause, so a hyphen between letters (or after a "[word](/phonemes/)" override) becomes a space. This rule goes last,
+# so every rule above still sees the hyphenated word ("lead-free", "read-only"). Digits stay ("W-2", "mid-2026").
+KOKORO_FIXES[r"(?<=[A-Za-z)])-(?=[A-Za-z])(?![^\[\]]*\])"] = " "  # not inside a "[re-read](/phonemes/)" label
+
 
 # What each phoneme override above is called in the summary; one not listed shows as its phonemes.
 _SOUND_NAMES = {"ˈɛpɑk": "EP-ock", "ˈɛpɑks": "EP-ocks","ɹˈid mˈi": "read me", "ɹˈid mˈiz": "read me",

@@ -305,7 +305,9 @@ phonemes, a name, and regexes for the words before and after it. Lead the metal 
 tear the rip ("a tear in the fabric"), bass the sound unless it's the fish, minute as in tiny ("minute changes"),
 content the noun unless a linking word makes it the adjective ("he seemed content"), "Object to ..." opening a
 sentence, and close the verb after let's/please/will. What misaki already says right (use, record, present, wind,
-"we live in", "I lead the team") has no row. To check a sentence, and hear it:
+"we live in", "I lead the team") has no row. A hyphen between letters is said as a space ("read-only" is the present
+"read", then "only"), because Kokoro pauses for about 0.3 s at a hyphen it was handed as a dash. To check a sentence,
+and hear it:
 
 ```
 slidecast phonemes "Initech's lead engineer read the logs and found it." --words lead read --wav samples/

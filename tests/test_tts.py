@@ -307,8 +307,8 @@ def test_kokoro_fixes_say_n_x_m_as_n_by_m(line, said):
 @pytest.mark.parametrize("line, said", [
     ("Route it. Routes, routed, routing.", "Rowt it. Rowts, rowted, rowting."),
     ("The router and the routers.", "The rowter and the rowters."),
-    ("ROUTE stays shouted-ish; Router starts a sentence.", "ROUTE stays shouted-ish; Rowter starts a sentence."),
-    ("A subroutine, a routine and en-route text.", "A subroutine, a routine and en-rowt text."),
+    ("ROUTE stays shouted-ish; Router starts a sentence.", "ROUTE stays shouted ish; Rowter starts a sentence."),
+    ("A subroutine, a routine and en-route text.", "A subroutine, a routine and en rowt text."),
 ])
 def test_kokoro_fixes_say_route_the_american_way(line, said):
     from slidecast.tts import KOKORO_FIXES
@@ -368,10 +368,11 @@ def test_kokoro_fixes_say_read_in_the_past(line, said):
     ("Please re-read the notes.", "Please [re-read](/ɹˌiɹˈid/) the notes."),
     ("Proofread it before you misread it.", "[Proofread](/pɹˈufɹˌid/) it before you [misread](/mɪsɹˈid/) it."),
     ("The reader reads and spreads.", "The reader reads and spreads."),
-    ("The file is read-only.", f"The file is [read]({REED})-only."),
+    # the hyphen is a space, so the voice does not pause between "read" and "only"
+    ("The file is read-only.", f"The file is [read]({REED}) only."),
     ("Tools are read-only and agents have read-write access.",
-     f"Tools are [read]({REED})-only and agents have [read]({REED})-write access."),
-    ("Read-only access, then I have read it.", f"[Read]({REED})-only access, then I have [read]({RED}) it."),
+     f"Tools are [read]({REED}) only and agents have [read]({REED}) write access."),
+    ("Read-only access, then I have read it.", f"[Read]({REED}) only access, then I have [read]({RED}) it."),
 ])
 def test_kokoro_fixes_say_read_in_the_present(line, said):
     from slidecast.tts import KOKORO_FIXES
@@ -400,7 +401,7 @@ README, READMES = "/ɹˈid mˈi/", "/ɹˈid mˈiz/"
     ("The README's first line, the README’s second.",
      f"The [README's]({READMES}) first line, the [README’s]({READMES}) second."),
     ("README.md and readme.md.", f"[README]({README}) dot M D and [readme]({README}) dot M D."),
-    ("A README-driven flow.", f"A [README]({README})-driven flow."),
+    ("A README-driven flow.", f"A [README]({README}) driven flow."),
     ("Run `README` now.", f"Run `[README]({README})` now."),
     ("The spreadmesh and readmeter tools.", "The spreadmesh and readmeter tools."),
 ])
@@ -565,7 +566,7 @@ def test_misaki_says_standalone_id_as_letters(line):
 @pytest.mark.parametrize("written, spoken", [
     ("MRR@10 is the metric.", "MRR at 10 is the metric."),
     ("MRR@10, with NDCG@10 beside it.", "MRR at 10, with NDCG at 10 beside it."),
-    ("A top-k of 50.", "A top-K of 50."),
+    ("A top-k of 50.", "A top K of 50."),
     ("Recall at k, and precision at k, differ.", "Recall at K, and precision at K, differ."),
 ])
 def test_misaki_says_ranking_metrics_the_way_a_person_does(written, spoken):
@@ -591,7 +592,7 @@ def test_misaki_spells_mrr_and_ndcg_as_letters(word, letters):
     ("Two epochs.", "Two [epochs](/ˈɛpɑks/)."),
     ("An epoch is a full pass.", "An [epoch](/ˈɛpɑk/) is a full pass."),
     ("Epoch seconds, and Epochs too.", "[Epoch](/ˈɛpɑk/) seconds, and [Epochs](/ˈɛpɑks/) too."),
-    ("An epoch's length; the epoch-based clock.", "An [epoch's](/ˈɛpɑks/) length; the [epoch](/ˈɛpɑk/)-based clock."),
+    ("An epoch's length; the epoch-based clock.", "An [epoch's](/ˈɛpɑks/) length; the [epoch](/ˈɛpɑk/) based clock."),
     ("An epochal change, left alone.", "An epochal change, left alone."),
 ])
 def test_kokoro_fixes_say_epoch_with_a_full_second_vowel(line, said):

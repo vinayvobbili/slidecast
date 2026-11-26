@@ -34,7 +34,7 @@ def test_read_takes_its_tense_from_the_rest_of_the_sentence(line, said):
 
 @pytest.mark.parametrize("line, said", [
     ("A lead pipe and lead paint.", "A [lead](/lˈɛd/) pipe and [lead](/lˈɛd/) paint."),
-    ("Lead poisoning, lead-free solder.", "[Lead](/lˈɛd/) poisoning, [lead](/lˈɛd/)-free solder."),
+    ("Lead poisoning, lead-free solder.", "[Lead](/lˈɛd/) poisoning, [lead](/lˈɛd/) free solder."),
     ("Lead and copper.", "[Lead](/lˈɛd/) and copper."),
     ("The keel is made of lead.", "The keel is made of [lead](/lˈɛd/)."),
     ("Heavy as lead, it sank.", "Heavy as [lead](/lˈɛd/), it sank."),
@@ -181,3 +181,31 @@ def test_misaki_takes_each_rows_phonemes(line, word, sound):
     from slidecast.tts import phonemes
 
     assert (word, sound) in phonemes(line)[2]
+
+
+@pytest.mark.parametrize("line, said", [
+    # "read-only" is the present "read", then "only", with no hyphen to pause at (any case, any punctuation after it)
+    ("The tools are read-only.", f"The tools are [read]({REED}) only."),
+    ("Read-Only access.", f"[Read]({REED}) Only access."),
+    ("It is read-only, by design.", f"It is [read]({REED}) only, by design."),
+    ("A read-only copy and read-write access.", f"A [read]({REED}) only copy and [read]({REED}) write access."),
+    # any other hyphen between letters is a space too, whatever rule ran first ("lead-free" keeps its metal sound)
+    ("A human-in-the-loop, least-privilege, hard-coded setup.",
+     "A human in the loop, least privilege, hard coded setup."),
+    ("Lead-free solder.", "[Lead](/lˈɛd/) free solder."),
+    # digits, spaced dashes and double dashes are left alone
+    ("The W-2 form in mid-2026, a 90-second answer - or -- not.",
+     "The W-2 form in mid-2026, a 90-second answer - or -- not."),
+])
+def test_a_hyphen_between_letters_is_said_as_a_space_so_the_voice_does_not_pause(line, said):
+    assert apply_phonetic(line, KOKORO_FIXES) == said
+
+
+def test_read_only_comes_out_of_misaki_with_no_dash_between_the_words():
+    pytest.importorskip("misaki.en")
+    from slidecast.tts import phonemes
+
+    for line in ("The tools are read-only for everyone.", "Everything is Read-Only, then logged."):
+        _spoken, ps, _words = phonemes(line)
+        assert "—" not in ps and "ɹˈid ˈOnli" in ps, line
+    assert "—" in phonemes("The tools are read-only for everyone.", fixes=None)[1]  # without the rule: the dash

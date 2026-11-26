@@ -266,7 +266,7 @@ def test_phonemes_prints_the_fixed_text_its_phonemes_and_the_asked_words(capsys)
     pytest.importorskip("misaki.en")
     assert main(["phonemes", "A made-up run of two epochs.", "--words", "epochs"]) == 0
     out = capsys.readouterr().out
-    assert "spoken:   A made-up run of two [epochs](/ˈɛpɑks/)." in out
+    assert "spoken:   A made up run of two [epochs](/ˈɛpɑks/)." in out  # the hyphen is a space: no pause
     assert "phonemes: " in out and "  epochs → ˈɛpɑks" in out
 
 
