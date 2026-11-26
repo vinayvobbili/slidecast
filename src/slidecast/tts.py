@@ -216,9 +216,17 @@ KOKORO_FIXES.update({
     r"(?i)(?<![\[\w])(?P<w>readme)\b": rf"[\g<w>]({_README})",
 })
 
+# "epoch" is "EP-ock" and "epochs" "EP-ocks". misaki gives it "ˈɛpək", with a schwa, which Kokoro says so softly it
+# is heard as "epic" (Whisper writes "epic" for it). The full vowel in the second syllable is heard as "epoch".
+KOKORO_FIXES.update({
+    r"(?i)(?<![\[\w])(?P<w>epoch['’]s)(?!\w)": r"[\g<w>](/ˈɛpɑks/)",
+    r"(?i)(?<![\[\w])(?P<w>epochs)\b": r"[\g<w>](/ˈɛpɑks/)",
+    r"(?i)(?<![\[\w])(?P<w>epoch)\b": r"[\g<w>](/ˈɛpɑk/)",
+})
+
 
 # What each phoneme override above is called in the summary; one not listed shows as its phonemes.
-_SOUND_NAMES = {"ɹˈid mˈi": "read me", "ɹˈid mˈiz": "read me",
+_SOUND_NAMES = {"ˈɛpɑk": "EP-ock", "ˈɛpɑks": "EP-ocks","ɹˈid mˈi": "read me", "ɹˈid mˈiz": "read me",
                 "ɹˈɛzəmˌA": "noun", "ɹˈɛzəmˌAz": "noun", "ɹəzˈum": "verb", "ɹəzˈumz": "verb", "lˈIv": "adjective",
                 "ɹˈɛd": "past", "ɹˌiɹˈɛd": "past", "pɹˈufɹˌɛd": "past", "mɪsɹˈɛd": "past",
                 "ɹˈid": "present", "ɹˌiɹˈid": "present", "pɹˈufɹˌid": "present", "mɪsɹˈid": "present"}
@@ -341,6 +349,19 @@ def use_homebrew_espeak(env=None, exists: Callable[[str], bool] = os.path.exists
     applied = {k: v for k, v in HOMEBREW_ESPEAK.items() if not env.get(k) and exists(v)}
     env.update(applied)
     return applied
+
+
+def phonemes(text: str, fixes: dict[str, str] | None = KOKORO_FIXES) -> tuple[str, str, list[tuple[str, str]]]:
+    """What Kokoro would be told to say for ``text``: the text after ``fixes``, its phonemes, and each word's.
+
+    Runs misaki's English G2P (the one Kokoro uses) over the fixed text, so a wrong sound shows before a video is
+    built. Pass ``fixes=None`` for the sound with no rule. Returns ``(spoken, phonemes, [(word, phonemes), ...])``.
+    """
+    use_homebrew_espeak()
+    import misaki.en
+    spoken = apply_phonetic(text, fixes)
+    ps, tokens = misaki.en.G2P(trf=False, british=False)(spoken)
+    return spoken, ps, [(t.text, t.phonemes or "") for t in tokens]
 
 
 def _load_mlx_model(model: str):

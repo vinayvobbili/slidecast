@@ -4,6 +4,7 @@
     slidecast compose -o audio/ --length 95 --bpm 84 --seed 7
     slidecast youtube out.mp4
     slidecast cache --prune --max-size 5G --dry-run
+    slidecast phonemes "Two epochs." --words epochs
 
 A spec is YAML or JSON::
 
@@ -209,7 +210,27 @@ def main(argv=None) -> int:
     y.add_argument("video", type=Path, help="a rendered .mp4")
     y.add_argument("-o", "--out", type=Path, default=None, help="output path (default: <name>-youtube.mp4)")
     y.add_argument("--scale", type=int, default=2, metavar="N", help="size multiple (default 2)")
+    p = sub.add_parser("phonemes", help="print the phonemes Kokoro is given for a text, after the pronunciation "
+                                        "fixes, to check how a word will sound")
+    p.add_argument("text", nargs="+", help="the text to phonemize (each argument is one text)")
+    p.add_argument("--words", nargs="+", default=None, metavar="WORD",
+                   help="also print the phonemes of each occurrence of these words")
+    p.add_argument("--no-fixes", action="store_true", help="skip slidecast's pronunciation fixes")
     args = parser.parse_args(argv)
+
+    if args.cmd == "phonemes":
+        from .tts import KOKORO_FIXES, phonemes
+        wanted = {w.lower() for w in args.words or ()}
+        for text in args.text:
+            try:
+                spoken, ps, words = phonemes(text, None if args.no_fixes else KOKORO_FIXES)
+            except ImportError as e:
+                raise SystemExit(f"phonemes needs misaki: pip install 'slidecast[mlx]' ({e})") from e
+            print(f"spoken:   {spoken}\nphonemes: {ps}")
+            for word, ph in words:
+                if word.lower().strip(".,;:!?\"'()") in wanted:
+                    print(f"  {word} → {ph}")
+        return 0
 
     if args.cmd == "cache":
         if (args.max_size or args.dry_run) and not args.prune:

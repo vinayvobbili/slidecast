@@ -585,3 +585,36 @@ def test_misaki_spells_mrr_and_ndcg_as_letters(word, letters):
 
     g2p = en.G2P(trf=False, british=False)
     assert letters in g2p(apply_phonetic(f"The {word}@10 went up.", KOKORO_FIXES))[0]
+
+
+@pytest.mark.parametrize("line, said", [
+    ("Two epochs.", "Two [epochs](/ˈɛpɑks/)."),
+    ("An epoch is a full pass.", "An [epoch](/ˈɛpɑk/) is a full pass."),
+    ("Epoch seconds, and Epochs too.", "[Epoch](/ˈɛpɑk/) seconds, and [Epochs](/ˈɛpɑks/) too."),
+    ("An epoch's length; the epoch-based clock.", "An [epoch's](/ˈɛpɑks/) length; the [epoch](/ˈɛpɑk/)-based clock."),
+    ("An epochal change, left alone.", "An epochal change, left alone."),
+])
+def test_kokoro_fixes_say_epoch_with_a_full_second_vowel(line, said):
+    from slidecast.tts import KOKORO_FIXES
+
+    assert apply_phonetic(line, KOKORO_FIXES) == said
+
+
+def test_misaki_says_epoch_with_a_full_second_vowel_after_the_fix():
+    en = pytest.importorskip("misaki.en")
+    from slidecast.tts import KOKORO_FIXES
+
+    g2p = en.G2P(trf=False, british=False)
+    # unfixed, misaki gives "ˈɛpək" and Kokoro says it so softly that Whisper writes "epic"
+    phonemes, _ = g2p(apply_phonetic("I ran two epochs, one epoch each.", KOKORO_FIXES))
+    assert "ˈɛpɑks" in phonemes and "ˈɛpɑk" in phonemes and "ˈɛpək" not in phonemes, phonemes
+
+
+def test_phonemes_gives_the_fixed_text_and_each_words_sound():
+    pytest.importorskip("misaki.en")
+    from slidecast.tts import phonemes
+
+    spoken, ps, words = phonemes("We ran two epochs.")
+    assert spoken == "We ran two [epochs](/ˈɛpɑks/)." and "ˈɛpɑks" in ps
+    assert ("epochs", "ˈɛpɑks") in words
+    assert ("epochs", "ˈɛpəks") in phonemes("We ran two epochs.", None)[2]  # no fixes: misaki's own, softer sound

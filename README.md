@@ -197,6 +197,7 @@ slidecast render reel.yaml -o out.mp4 --poster
 slidecast check out.mp4 [--min-gap 0.6]   # exit 1: black in the last 0.5 s, a first card over 4 s before any voice,
                                           # or (with --min-gap) a slide change that cuts the voice off
 slidecast youtube out.mp4 [-o out-youtube.mp4]   # an upload copy at 2x size, 30 fps, CRF 16
+slidecast phonemes "Two epochs." --words epochs   # the phonemes Kokoro is given, after the pronunciation fixes
 ```
 
 YouTube re-encodes every upload, and a 1280x800 file lands in its 720p tier, which blurs small text. A 2x copy

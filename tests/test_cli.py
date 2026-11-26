@@ -262,6 +262,21 @@ def test_cache_size_and_dry_run_need_prune(tmp_path, capsys):
     assert "go with --prune" in capsys.readouterr().err
 
 
+def test_phonemes_prints_the_fixed_text_its_phonemes_and_the_asked_words(capsys):
+    pytest.importorskip("misaki.en")
+    assert main(["phonemes", "A made-up run of two epochs.", "--words", "epochs"]) == 0
+    out = capsys.readouterr().out
+    assert "spoken:   A made-up run of two [epochs](/ˈɛpɑks/)." in out
+    assert "phonemes: " in out and "  epochs → ˈɛpɑks" in out
+
+
+def test_phonemes_no_fixes_shows_misakis_own_sound(capsys):
+    pytest.importorskip("misaki.en")
+    assert main(["phonemes", "Two epochs.", "--words", "epochs", "--no-fixes"]) == 0
+    out = capsys.readouterr().out
+    assert "spoken:   Two epochs." in out and "  epochs → ˈɛpəks" in out
+
+
 def test_cache_command_says_when_the_cache_is_off(capsys, monkeypatch):
     monkeypatch.setenv("SLIDECAST_CACHE", "off")
     assert main(["cache"]) == 0
