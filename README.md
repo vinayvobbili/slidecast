@@ -197,6 +197,7 @@ slidecast render reel.yaml -o out.mp4 --poster
 slidecast check out.mp4 [--min-gap 0.6]   # exit 1: black in the last 0.5 s, a first card over 4 s before any voice,
                                           # or (with --min-gap) a slide change that cuts the voice off
 slidecast youtube out.mp4 [-o out-youtube.mp4]   # an upload copy at 2x size, 30 fps, CRF 16
+slidecast join all.mp4 intro.mp4 part1.mp4 part2.mp4 [--chapters all.txt]   # finished clips into one video, copied
 slidecast phonemes "Two epochs." --words epochs   # the phonemes Kokoro is given, after the pronunciation fixes
 slidecast phonemes "I read it yesterday." --wav samples/   # and say it with Kokoro into samples/01-i-read-it-yesterday.wav
 ```
@@ -205,6 +206,12 @@ YouTube re-encodes every upload, and a 1280x800 file lands in its 720p tier, whi
 (2560x1600) lands in 1440p, which gets VP9 and several times the bitrate. `Reel.render(..., youtube=True)` writes
 the same `<name>-youtube.mp4` beside the reel. It scales the finished video with Lanczos, so it can't add detail
 the reel doesn't have; for the sharpest text, design the slides at 2x too.
+
+`slidecast join` (or `slidecast.join_clips`) makes one video of finished clips by copying them: nothing is decoded or
+encoded, so an hour of video joins in seconds, and a part rebuilt on its own can be joined again just as fast. The
+clips must match in video codec, size, frame rate and pixel format, and in audio codec, sample rate and channels; a
+clip that differs is named with the field, and nothing is written. `--chapters FILE` writes each clip's start time and
+name, one per line, for a video description.
 
 ### Line breaks
 

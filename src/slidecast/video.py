@@ -8,6 +8,7 @@ can assert the exact command line without invoking ffmpeg.
 
 from __future__ import annotations
 
+import json
 import math
 import os
 import re
@@ -237,6 +238,88 @@ def concat(
         ])
     finally:
         list_path.unlink(missing_ok=True)
+    return out
+
+
+class JoinMismatch(ValueError):
+    """Clips that cannot be joined without a re-encode: the message says which one differs, and in what."""
+
+
+# What must match for a copying join to play: the video codec, size, frame rate and pixel format, and the audio codec,
+# sample rate and channel count. (A name for each, with the ffprobe field it is read from.)
+_JOIN_FIELDS = (("video codec", "v", "codec_name"), ("width", "v", "width"), ("height", "v", "height"),
+                ("frame rate", "v", "r_frame_rate"), ("pixel format", "v", "pix_fmt"),
+                ("audio codec", "a", "codec_name"), ("sample rate", "a", "sample_rate"),
+                ("channels", "a", "channels"))
+
+
+def probe_streams(media: Path, *, ffmpeg: str | None = None) -> dict[str, object]:
+    """What :func:`join_clips` compares: ``{"video codec": "h264", "width": 1280, ...}`` for the first video and the
+    first audio stream of ``media`` (a field a file lacks, such as the audio of a silent clip, is None)."""
+    ffmpeg = ffmpeg or find_ffmpeg()
+    probe = _ffprobe_for(ffmpeg)
+    if not probe:
+        raise RuntimeError("joining clips needs ffprobe, next to ffmpeg or on the PATH")
+    res = _probe_run([probe, "-v", "error", "-show_entries",
+                      "stream=codec_type,codec_name,width,height,r_frame_rate,pix_fmt,sample_rate,channels",
+                      "-of", "json", str(media)], check=True)
+    streams = json.loads(res.stdout or "{}").get("streams", [])
+    found: dict[str, object] = {}
+    for name, kind, field in _JOIN_FIELDS:
+        stream = next((s for s in streams if s.get("codec_type") == ("video" if kind == "v" else "audio")), {})
+        found[name] = stream.get(field)
+    return found
+
+
+def check_joinable(clips: list[Path], *, ffmpeg: str | None = None) -> list[str]:
+    """What stops ``clips`` being joined as they are: one line per clip and field that differs from the first clip's
+    (empty when they all match)."""
+    first = probe_streams(clips[0], ffmpeg=ffmpeg)
+    problems = []
+    for clip in clips[1:]:
+        got = probe_streams(clip, ffmpeg=ffmpeg)
+        problems += [f"{Path(clip).name}: {name} is {got[name]}, {Path(clips[0]).name} has {first[name]}"
+                     for name in first if got[name] != first[name]]
+    return problems
+
+
+def _clock(seconds: float) -> str:
+    seconds = round(seconds)
+    return f"{seconds // 3600}:{seconds % 3600 // 60:02d}:{seconds % 60:02d}"
+
+
+def join_clips(clips: list[Path], out: Path, *, ffmpeg: str | None = None, runner=None,
+               chapters: Path | None = None, names: list[str] | None = None) -> Path:
+    """Join finished clips into one video by copying them: no frame is decoded or encoded, so an hour of video joins
+    in seconds, and every clip's picture and sound come through as they were.
+
+    Every clip must match the first in codec, size, frame rate, pixel format, audio codec, sample rate and channel
+    count (:func:`check_joinable`); a clip that differs raises :class:`JoinMismatch` naming it and the field, and
+    nothing is written. ``chapters`` is a text file that gets one line per clip, its start time and name (``names``,
+    else the file's stem), ready to paste into a video description.
+    """
+    clips = [Path(c) for c in clips]
+    if not clips:
+        raise ValueError("join_clips() needs at least one clip")
+    ffmpeg = ffmpeg or find_ffmpeg()
+    if problems := check_joinable(clips, ffmpeg=ffmpeg):
+        raise JoinMismatch("these clips cannot be joined without a re-encode: " + "; ".join(problems))
+    runner = runner or subprocess.run
+    with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
+        for clip in clips:
+            f.write("file '" + str(clip.resolve()).replace("'", "'\\''") + "'\n")
+        list_path = Path(f.name)
+    try:
+        run_ffmpeg(runner, [ffmpeg, "-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", str(list_path),
+                            "-c", "copy", "-movflags", "+faststart", str(out)])
+    finally:
+        list_path.unlink(missing_ok=True)
+    if chapters is not None:
+        start, lines = 0.0, []
+        for clip, name in zip(clips, names or [c.stem for c in clips], strict=True):
+            lines.append(f"{_clock(start)} {name}")
+            start += probe_duration(clip, ffmpeg=ffmpeg)
+        Path(chapters).write_text("\n".join(lines) + "\n")
     return out
 
 

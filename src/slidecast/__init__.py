@@ -41,6 +41,7 @@ Composed music (numpy, the [compose] extra), nothing to license:
     write_wav(path, samples) / compose(out_dir, length, bpm, seed)
 ffmpeg steps (injectable runner, for direct use/testing):
     build_segment(...) / build_clip_segment(...) / concat(...) / poster(...)
+    join_clips(clips, out)   # finished clips into one video by copying them: seconds, no re-encode
     master(...) / mix_music(...)   # fades + end-hold / bed, stings, loudness
     find_ffmpeg() -> path   (PATH, $SLIDECAST_FFMPEG, or imageio-ffmpeg)
 """
@@ -64,9 +65,11 @@ from .tts import (
     wav_duration,
 )
 from .video import (
+    JoinMismatch,
     build_clip_segment,
     build_segment,
     concat,
+    join_clips,
     master,
     mix_music,
     poster,
@@ -85,6 +88,7 @@ __all__ = [
     "ClippedError",
     "FFmpegNotFound",
     "FFmpegTimeout",
+    "JoinMismatch",
     "KokoroTTS",
     "MLXKokoroTTS",
     "MacSayTTS",
@@ -111,6 +115,7 @@ __all__ = [
     "find_clipped",
     "find_ffmpeg",
     "intro_sting",
+    "join_clips",
     "master",
     "mix_music",
     "music_bed",

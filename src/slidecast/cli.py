@@ -3,6 +3,7 @@
     slidecast render reel.yaml -o out.mp4 --poster
     slidecast compose -o audio/ --length 95 --bpm 84 --seed 7
     slidecast youtube out.mp4
+    slidecast join all.mp4 part1.mp4 part2.mp4 --chapters all.chapters.txt
     slidecast cache --prune --max-size 5G --dry-run
     slidecast phonemes "Two epochs." --words epochs
     slidecast phonemes "I read it yesterday." "It's a live demo." --wav samples/
@@ -218,6 +219,12 @@ def main(argv=None) -> int:
     y.add_argument("video", type=Path, help="a rendered .mp4")
     y.add_argument("-o", "--out", type=Path, default=None, help="output path (default: <name>-youtube.mp4)")
     y.add_argument("--scale", type=int, default=2, metavar="N", help="size multiple (default 2)")
+    j = sub.add_parser("join", help="join finished clips into one video by copying them (no re-encode, seconds "
+                                    "for an hour of video); the clips must match in codec, size, frame rate and audio")
+    j.add_argument("out", type=Path, help="the joined .mp4 to write")
+    j.add_argument("clips", type=Path, nargs="+", help="the clips, in playing order")
+    j.add_argument("--chapters", type=Path, default=None, metavar="FILE",
+                   help="also write each clip's start time and name to this text file")
     p = sub.add_parser("phonemes", help="print the phonemes Kokoro is given for a text, after the pronunciation "
                                         "fixes, to check how a word will sound")
     p.add_argument("text", nargs="+", help="the text to phonemize (each argument is one text)")
@@ -228,6 +235,20 @@ def main(argv=None) -> int:
                    help="also say each text with Kokoro (mlx) and write it to DIR as a WAV, to listen to")
     p.add_argument("--voice", default="af_heart", help="the Kokoro voice for --wav (default af_heart)")
     args = parser.parse_args(argv)
+
+    if args.cmd == "join":
+        from .video import JoinMismatch, join_clips
+        missing = [c for c in args.clips if not c.is_file()]
+        if missing:
+            parser.error("no such clip: " + ", ".join(map(str, missing)))
+        try:
+            join_clips(args.clips, args.out, chapters=args.chapters)
+        except JoinMismatch as e:
+            print(f"slidecast join: {e}", file=sys.stderr)
+            return 1
+        size_mb = args.out.stat().st_size / 1e6
+        print(f"✓ joined {len(args.clips)} clips into {args.out} ({size_mb:.1f} MB), not re-encoded")
+        return 0
 
     if args.cmd == "phonemes":
         from .tts import KOKORO_FIXES, phonemes
