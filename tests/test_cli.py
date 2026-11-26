@@ -277,6 +277,41 @@ def test_phonemes_no_fixes_shows_misakis_own_sound(capsys):
     assert "spoken:   Two epochs." in out and "  epochs → ˈɛpəks" in out
 
 
+def test_phonemes_wav_says_each_text_into_a_numbered_file(tmp_path, capsys, monkeypatch):
+    pytest.importorskip("misaki.en")
+    import slidecast.cli as cli
+    from slidecast.tts import KOKORO_FIXES
+
+    said = []
+
+    class FakeKokoro(SilentTTS):
+        def __init__(self, voice, fixes):
+            super().__init__(seconds=0.1)
+            said.append(("voice", voice, fixes))
+
+        def synthesize(self, text, out_path):
+            said.append(text)
+            return super().synthesize(text, out_path)
+
+    monkeypatch.setattr(cli, "MLXKokoroTTS", FakeKokoro)
+    assert main(["phonemes", "I read it yesterday.", "A lead pipe!", "--wav", str(tmp_path / "s"),
+                 "--voice", "am_adam"]) == 0
+    out = capsys.readouterr().out
+    first, second = tmp_path / "s" / "01-i-read-it-yesterday.wav", tmp_path / "s" / "02-a-lead-pipe.wav"
+    assert first.exists() and second.exists()
+    assert f"wav:      {first}" in out and f"wav:      {second}" in out
+    assert said == [("voice", "am_adam", KOKORO_FIXES), "I read it yesterday.", "A lead pipe!"]
+
+
+def test_sample_name_is_the_number_and_first_words():
+    from slidecast.cli import sample_name
+
+    assert sample_name(2, "I use it daily; the use case is clear.") == "02-i-use-it-daily-the-use-case-is-clear.wav"
+    assert sample_name(12, "Globex said: a very long sentence that keeps going on") == (
+        "12-globex-said-a-very-long-sentence-that-ke.wav")  # the first 40 characters
+    assert sample_name(1, "!!!") == "01-text.wav"
+
+
 def test_cache_command_says_when_the_cache_is_off(capsys, monkeypatch):
     monkeypatch.setenv("SLIDECAST_CACHE", "off")
     assert main(["cache"]) == 0

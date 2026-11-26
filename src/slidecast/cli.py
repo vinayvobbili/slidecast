@@ -5,6 +5,7 @@
     slidecast youtube out.mp4
     slidecast cache --prune --max-size 5G --dry-run
     slidecast phonemes "Two epochs." --words epochs
+    slidecast phonemes "I read it yesterday." "It's a live demo." --wav samples/
 
 A spec is YAML or JSON::
 
@@ -37,6 +38,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -165,6 +167,12 @@ def cache_command(directory: Path | None, *, prune: bool = False, max_size: str 
     return 0
 
 
+def sample_name(n: int, text: str) -> str:
+    """The file ``phonemes --wav`` writes the n-th text to: its number and first words, e.g. "02-i-read-it.wav"."""
+    slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:40].rstrip("-")
+    return f"{n:02d}-{slug or 'text'}.wav"
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="slidecast", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -216,20 +224,30 @@ def main(argv=None) -> int:
     p.add_argument("--words", nargs="+", default=None, metavar="WORD",
                    help="also print the phonemes of each occurrence of these words")
     p.add_argument("--no-fixes", action="store_true", help="skip slidecast's pronunciation fixes")
+    p.add_argument("--wav", type=Path, default=None, metavar="DIR",
+                   help="also say each text with Kokoro (mlx) and write it to DIR as a WAV, to listen to")
+    p.add_argument("--voice", default="af_heart", help="the Kokoro voice for --wav (default af_heart)")
     args = parser.parse_args(argv)
 
     if args.cmd == "phonemes":
         from .tts import KOKORO_FIXES, phonemes
         wanted = {w.lower() for w in args.words or ()}
-        for text in args.text:
+        fixes = None if args.no_fixes else KOKORO_FIXES
+        voice = MLXKokoroTTS(voice=args.voice, fixes=fixes) if args.wav else None
+        for i, text in enumerate(args.text, 1):
             try:
-                spoken, ps, words = phonemes(text, None if args.no_fixes else KOKORO_FIXES)
+                spoken, ps, words = phonemes(text, fixes)
             except ImportError as e:
                 raise SystemExit(f"phonemes needs misaki: pip install 'slidecast[mlx]' ({e})") from e
             print(f"spoken:   {spoken}\nphonemes: {ps}")
             for word, ph in words:
                 if word.lower().strip(".,;:!?\"'()") in wanted:
                     print(f"  {word} → {ph}")
+            if voice:
+                args.wav.mkdir(parents=True, exist_ok=True)
+                out = args.wav / sample_name(i, text)
+                voice.synthesize(text, out)
+                print(f"wav:      {out}")
         return 0
 
     if args.cmd == "cache":

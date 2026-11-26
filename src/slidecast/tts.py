@@ -169,22 +169,41 @@ _READ_PAST_TIME = (r"(?:yesterday|ago|last\s+(?:night|week|weekend|month|quarter
                    r"earlier(?=\s+(?:today|this|that|on|in)\b|\s*[.,;:!?]|\s*$))")
 _READ_PRESENT_CUES = (r"\b(?:to|will|would|can|cannot|could|should|may|might|must|shall|do|does|did|please|"
                       r"(?:don|doesn|didn|won|can)['’]t|let['’]s|i|you|we|they)\s+")
+# "I read" alone is a guess, so the rest of the sentence decides it first: a habit ("every morning", "daily") makes it
+# the present; else another verb in the past ("I read the logs and found it", "When it fired, I read the logs") makes
+# it the past. A past verb is an -ed word (not "need", "hundred" and the like) or a common irregular one.
+_READ_HABIT = (r"(?:every|each)\s+(?:day|morning|night|week|weekday|month|time|shift|sprint|quarter)|daily|weekly|"
+               r"usually|always|often|routinely|regularly|nowadays|these\s+days")
+_PAST_VERB = (r"(?:(?!(?:hundred|embed|kindred|sacred|naked|wicked|rugged|ragged|crooked|beloved|seabed|hatred)\b)"
+              r"[a-z]{2,}(?<!e)ed|was|were|had|did|found|saw|went|took|made|built|wrote|led|ran|sent|got|told|said|"
+              r"knew|thought|came|gave|began|brought|caught|felt|kept|left|lost|met|paid|spent|spoke|stood|"
+              r"understood|won|chose|drove|fell|grew|heard|held|sold|taught|threw|wore)")
+_SENTENCE = r"[^.!?;\[\]]*?"  # more of the same sentence, short of a word a rule already rewrote
+_SENTENCE_START = r"(?:^|(?<=[.!?]\s))"
 
 
 def _read_rules() -> dict[str, str]:
-    override, past, present = {}, {}, {}
+    override, past, habit, story, present = {}, {}, {}, {}, {}
     for form, (red, reed) in _READ_FORMS.items():
         word = rf"(?P<w>{form})\b"
         for tense, ph in (("past", red), ("present", reed)):
             override[rf"(?i)\{{(?P<w>{form}):{tense}\}}"] = rf"[\g<w>](/{ph}/)"
         past[rf"(?i)(?P<pre>{_READ_PAST_CUES}){word}"] = rf"\g<pre>[\g<w>](/{red}/)"
         past[rf"(?i)(?<=[\w'’]\s)\b{word}(?=(?:\s+[\w'’-]+){{0,4}}?\s+{_READ_PAST_TIME})"] = rf"[\g<w>](/{red}/)"
+        habit[rf"(?i)(?<![\[\w-]){word}(?={_SENTENCE}\b(?:{_READ_HABIT})\b)"] = rf"[\g<w>](/{reed}/)"
+        habit[rf"(?im)(?P<pre>{_SENTENCE_START}{_SENTENCE}\b(?:{_READ_HABIT})\b{_SENTENCE})(?<![\[\w-]){word}"] = (
+            rf"\g<pre>[\g<w>](/{reed}/)")
+        story[rf"(?i)(?P<pre>\b(?:i|we|you|they)\s+){word}(?={_SENTENCE}(?:\b(?:and|then|but|so|before|after|until|"
+              rf"when|once)|,)\s+(?:(?:i|we|you|they|he|she|it|which|that|this)\s+)?{_PAST_VERB}\b)"] = (
+            rf"\g<pre>[\g<w>](/{red}/)")
+        story[rf"(?im)(?P<pre>{_SENTENCE_START}{_SENTENCE}\b{_PAST_VERB}\b{_SENTENCE}\b(?:i|we|you|they)\s+){word}"] = (
+            rf"\g<pre>[\g<w>](/{red}/)")
         present[rf"(?i)(?P<pre>{_READ_PRESENT_CUES}){word}"] = rf"\g<pre>[\g<w>](/{reed}/)"
-        present[rf"(?im)(?:^|(?<=[.!?]\s)){word}"] = rf"[\g<w>](/{reed}/)"
+        present[rf"(?im){_SENTENCE_START}{word}"] = rf"[\g<w>](/{reed}/)"
     # "read-only" and its kin are always the present, even after "is"/"are" ("the tools are read-only"), which would
     # otherwise count as a past cue; these rules run first so the cue rules find the word already rewritten
     compound = {r"(?i)(?P<w>read)(?=-(?:only|write|access)\b)": r"[\g<w>](/ɹˈid/)"}
-    return {**override, **compound, **past, **present}
+    return {**override, **compound, **past, **habit, **story, **present}
 
 
 KOKORO_FIXES.update(_read_rules())
@@ -224,12 +243,63 @@ KOKORO_FIXES.update({
     r"(?i)(?<![\[\w])(?P<w>epoch)\b": r"[\g<w>](/ˈɛpɑk/)",
 })
 
+# Heteronyms misaki's tagger gets wrong, one row each: (word, phonemes, sound name, words before, words after). A row
+# gives the word its phonemes when the text before it ends with ``before`` and the text after it starts with ``after``
+# (regexes, case ignored; "" matches anything). Rows are tried in order and a word already given a sound is skipped,
+# so a narrow row goes ahead of a broad one for the same word. Only what misaki says wrong has a row: it already gets
+# "use", "record", "present", "wind", "live in" and "the lead engineer" right (the tests pin that down).
+_NOUN_AFTER = r"\s+(?:{})\b"
+HETERONYMS: list[tuple[str, str, str, str, str]] = [
+    # lead the metal ("led"), not the verb or the role ("leed"), which misaki always says
+    ("lead", "lˈɛd", "metal", "",
+     r"[\s-]+(?:pipes?|paint|poisoning|based|free|acid|exposure|shot|weights?|aprons?|bullets?|crystal|oxide|"
+     r"contamination|solder|batter(?:y|ies)|and\s+(?:copper|tin|zinc|mercury|arsenic|cadmium))\b"),
+    ("lead", "lˈɛd", "metal", r"\b(?:made\s+of|heavy\s+as|full\s+of|traces\s+of|amounts\s+of|levels\s+of)\s+",
+     r"\s*(?:[.,;:!?)]|$)"),
+    # tear the rip ("tare"), not the drop from an eye ("teer"), which misaki says for the noun
+    ("tear", "tˈɛɹ", "rip", "", r"\s+in\s+(?:the|a|an|its)\s+(?!eyes?\b)"),
+    ("tears", "tˈɛɹz", "rip", "", r"\s+in\s+(?:the|a|an|its)\s+(?!eyes?\b)"),
+    # bass the sound ("base"), unless it's the fish; misaki always says the fish
+    ("bass", "bˈæs", "fish", r"\b(?:sea|striped|largemouth|smallmouth|spotted|caught|catch|catching)\s+(?:a\s+)?", ""),
+    ("bass", "bˈæs", "fish", "", _NOUN_AFTER.format("fish|fishing|boats?|lakes?|ponds?|tournaments?|lures?|anglers?")),
+    ("bass", "bˈAs", "music", "", ""),
+    # minute as in tiny ("my-NOOT") before what it describes; misaki gives "minute changes" the time ("MIN-it")
+    ("minute", "mInˈut", "tiny", r"(?<!last\s)",
+     _NOUN_AFTER.format("changes?|differences?|details?|amounts?|traces?|quantities|particles?|variations?|"
+                        "adjustments?|fractions?|errors?|discrepanc(?:y|ies)")),
+    # content the adjective ("con-TENT") after a linking word and at the end of its phrase; else the noun ("CON-tent"),
+    # which misaki misses at the start of a sentence ("Content moderation")
+    ("content", "kəntˈɛnt", "adjective",
+     r"(?:\b(?:am|is|are|was|were|be|been|being|seem|seems|seemed|feel|feels|felt|remain|remains|remained|stay|"
+     r"stays|stayed|quite|very|perfectly|fairly|not|more|less|so|i|we|you|they|he|she)|['’](?:m|re))\s+",
+     r"\s+(?:with|to)\b|\s*(?:[.,;:!?]|$)"),
+    ("content", "kˈɑntɛnt", "noun", "", ""),
+    # "Object to ..." opening a sentence is the verb ("ob-JECT"); misaki says the noun
+    ("object", "əbʤˈɛkt", "verb", _SENTENCE_START, r"\s+to\b"),
+    # close the verb ("kloze") after let's, please or a helping verb; misaki says "let's close" with the adjective
+    ("close", "klˈOz", "verb",
+     r"\b(?:let['’]s|please|will|would|can|could|should|must|might|may|to|(?:don|didn|won|can)['’]t)\s+", ""),
+]
+
+
+def heteronym_rules(rows: Iterable[tuple[str, str, str, str, str]] = HETERONYMS) -> dict[str, str]:
+    """Turn ``(word, phonemes, name, before, after)`` rows into rules for :func:`apply_phonetic`, in row order."""
+    rules = {}
+    for word, ph, _name, before, after in rows:
+        pattern = rf"(?im)(?P<pre>{before})(?<![\[\w-])(?P<w>{word})\b" + (rf"(?={after})" if after else "")
+        rules[pattern] = rf"\g<pre>[\g<w>](/{ph}/)"
+    return rules
+
+
+KOKORO_FIXES.update(heteronym_rules())
+
 
 # What each phoneme override above is called in the summary; one not listed shows as its phonemes.
 _SOUND_NAMES = {"ˈɛpɑk": "EP-ock", "ˈɛpɑks": "EP-ocks","ɹˈid mˈi": "read me", "ɹˈid mˈiz": "read me",
                 "ɹˈɛzəmˌA": "noun", "ɹˈɛzəmˌAz": "noun", "ɹəzˈum": "verb", "ɹəzˈumz": "verb", "lˈIv": "adjective",
                 "ɹˈɛd": "past", "ɹˌiɹˈɛd": "past", "pɹˈufɹˌɛd": "past", "mɪsɹˈɛd": "past",
-                "ɹˈid": "present", "ɹˌiɹˈid": "present", "pɹˈufɹˌid": "present", "mɪsɹˈid": "present"}
+                "ɹˈid": "present", "ɹˌiɹˈid": "present", "pɹˈufɹˌid": "present", "mɪsɹˈid": "present",
+                **{ph: name for _word, ph, name, _before, _after in HETERONYMS}}
 _OVERRIDE = re.compile(r"\[([^\]]+)\]\(/([^/)]+)/\)")
 
 

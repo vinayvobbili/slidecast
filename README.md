@@ -198,6 +198,7 @@ slidecast check out.mp4 [--min-gap 0.6]   # exit 1: black in the last 0.5 s, a f
                                           # or (with --min-gap) a slide change that cuts the voice off
 slidecast youtube out.mp4 [-o out-youtube.mp4]   # an upload copy at 2x size, 30 fps, CRF 16
 slidecast phonemes "Two epochs." --words epochs   # the phonemes Kokoro is given, after the pronunciation fixes
+slidecast phonemes "I read it yesterday." --wav samples/   # and say it with Kokoro into samples/01-i-read-it-yesterday.wav
 ```
 
 YouTube re-encodes every upload, and a 1280x800 file lands in its 720p tier, which blurs small text. A 2x copy
@@ -295,7 +296,20 @@ have/has/had/'ve/'d/was/were/been/is/are/be/being/get/got/already/just/never/wel
 with yesterday/ago/earlier/"last week" a few words after it (also re-read, proofread, misread); reed after
 to/will/can/do/I/you/we/they and for an imperative like "Read them out loud". To force a reading, write
 `{read:past}` or `{read:present}` in the narration (`{Read:past}`, `{re-read:present}`, `{proofread:past}` and
-`{misread:past}` work too); the Kokoro engine turns it into the right sound and keeps the word.
+`{misread:past}` work too); the Kokoro engine turns it into the right sound and keeps the word. A bare "I read"
+(or we/you/they) looks at the rest of the sentence first: a habit ("every morning", "daily", "usually") makes it reed,
+another past verb ("I read the logs and found it", "When it fired, I read the logs") makes it red.
+
+Other heteronyms that misaki's tagger gets wrong have one row each in `slidecast.tts.HETERONYMS`: the word, its
+phonemes, a name, and regexes for the words before and after it. Lead the metal ("a lead pipe", "made of lead"),
+tear the rip ("a tear in the fabric"), bass the sound unless it's the fish, minute as in tiny ("minute changes"),
+content the noun unless a linking word makes it the adjective ("he seemed content"), "Object to ..." opening a
+sentence, and close the verb after let's/please/will. What misaki already says right (use, record, present, wind,
+"we live in", "I lead the team") has no row. To check a sentence, and hear it:
+
+```
+slidecast phonemes "Initech's lead engineer read the logs and found it." --words lead read --wav samples/
+```
 
 **Renderer** — a context manager exposing `screenshot(html, path, *, width, height)`:
 
