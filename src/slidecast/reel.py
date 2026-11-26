@@ -91,6 +91,11 @@ class Reel:
         video_crf: A constant-quality setting (x264 CRF, lower is sharper; 16 to 18 for text-heavy slides) for the
             segments, with the slow preset and a keyframe every 2 s. None (the default) keeps the encoder's own
             defaults, which are far too soft for fine text at 1080p.
+        scale: Pixel density of the output: the slides are laid out at ``width`` x ``height`` and the file is
+            ``width * scale`` x ``height * scale``. A renderer set to the same device scale factor (a
+            :class:`PlaywrightRenderer` made with ``device_scale_factor=scale``; the default one is) draws real detail
+            at the larger size, so a 4K upload of a 1080p design has crisp text, not an enlarged 1080p frame.
+            Clips are scaled to fit. 1 (the default) is the plain size.
     """
 
     width: int = 1920
@@ -111,6 +116,7 @@ class Reel:
     closing_qr: str | None = None
     closing_qr_label: str = ""
     video_crf: int | None = None
+    scale: int = 1
     _title: str | None = field(default=None, init=False, repr=False)
     _tagline: str | None = field(default=None, init=False, repr=False)
 
@@ -325,6 +331,13 @@ class Reel:
         """
         if not self.slides:
             raise ValueError("Reel has no slides or clips")
+        if self.scale < 1:
+            raise ValueError("scale must be at least 1")
+        density = getattr(self.renderer, "device_scale_factor", self.scale)
+        if density != self.scale:
+            raise ValueError(f"the renderer draws at device scale factor {density} but the reel's scale is "
+                             f"{self.scale}: the slides would be enlarged, not sharper")
+        out_w, out_h = self.width * self.scale, self.height * self.scale  # the file's size
         out_path = Path(out_path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         ffmpeg = ffmpeg or find_ffmpeg()
@@ -348,7 +361,8 @@ class Reel:
         if closing := self._closing_slide():
             plan.append(closing)
         needs_browser = any(isinstance(s, (Slide, Animation)) for s in plan)
-        renderer = (self.renderer or PlaywrightRenderer()) if needs_browser else contextlib.nullcontext()
+        renderer = ((self.renderer or PlaywrightRenderer(device_scale_factor=self.scale))
+                    if needs_browser else contextlib.nullcontext())
 
         segments: list[Path] = []
         total = len(plan)
@@ -385,7 +399,7 @@ class Reel:
                         duration, hold = whole - delay, hold + whole - delay - duration
                         key = cache and _cache.digest(
                             "clip", _cache.file_digest(Path(slide.video)), _cache.file_digest(audio),
-                            self.width, self.height, self.fps, duration + delay, hold, delay,
+                            out_w, out_h, self.fps, duration + delay, hold, delay,
                             _cache.encode_key(self.video_crf))
                         if key and cache.get_segment(key, seg):
                             if on_cached:
@@ -393,7 +407,7 @@ class Reel:
                         else:
                             _video.build_clip_segment(
                                 slide.video, audio, seg,
-                                width=self.width, height=self.height, fps=self.fps,
+                                width=out_w, height=out_h, fps=self.fps,
                                 duration=duration + delay, hold=hold, delay=delay,
                                 crf=self.video_crf, ffmpeg=ffmpeg,
                             )
@@ -412,14 +426,14 @@ class Reel:
                         duration = _on_frames(duration + delay, self.fps)
                     key = cache and _cache.digest(
                         "slide", _cache.file_digest(png), _cache.file_digest(audio),
-                        self.width, self.height, self.fps, duration, delay, _cache.encode_key(self.video_crf))
+                        out_w, out_h, self.fps, duration, delay, _cache.encode_key(self.video_crf))
                     if key and cache.get_segment(key, seg):
                         if on_cached:
                             on_cached(i, total, slide)
                     else:
                         _video.build_segment(
                             png, audio, seg,
-                            width=self.width, height=self.height, fps=self.fps,
+                            width=out_w, height=out_h, fps=self.fps,
                             duration=duration, delay=delay, crf=self.video_crf, ffmpeg=ffmpeg,
                         )
                         if key:

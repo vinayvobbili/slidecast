@@ -279,3 +279,59 @@ def test_compose_without_numpy_fails_before_any_slide_is_built(monkeypatch, tmp_
     with pytest.raises(ImportError, match="slidecast\\[compose\\]"):
         reel.render(tmp_path / "out.mp4", ffmpeg="ff")
     assert not renderer.calls and not runner.commands
+
+
+def _filters(runner):
+    return [c[c.index("-vf") + 1] if "-vf" in c else c[c.index("-filter_complex") + 1]
+            for c in runner.commands if "-vf" in c or "-filter_complex" in c]
+
+
+def test_scale_lays_out_at_the_design_size_and_writes_a_larger_file(monkeypatch, tmp_path):
+    from slidecast import video
+
+    runner = _patch_video_runner(monkeypatch)
+    monkeypatch.setattr(video, "probe_duration", lambda media, ffmpeg=None: 4.0)
+    renderer = FakeRenderer()
+    reel = Reel(width=1920, height=1080, renderer=renderer, tts=SilentTTS(seconds=1.0), scale=2)
+    reel.add("<h1>a</h1>", "first")
+    reel.add_clip(tmp_path / "demo.webm", "second")
+    reel.render(tmp_path / "out.mp4", ffmpeg="ff", cache=False)
+    assert [(c["width"], c["height"]) for c in renderer.calls] == [(1920, 1080)]
+    slide, clip = _filters(runner)[:2]
+    assert slide == "scale=3840:2160"
+    assert "scale=3840:2160:force_original_aspect_ratio=decrease" in clip and "pad=3840:2160:" in clip
+    assert Reel().scale == 1
+
+
+def test_the_default_renderer_draws_at_the_reels_scale(monkeypatch, tmp_path):
+    import slidecast.reel as reel_mod
+
+    _patch_video_runner(monkeypatch)
+    made = []
+
+    class Recording(FakeRenderer):
+        def __init__(self, device_scale_factor=1):
+            super().__init__()
+            self.device_scale_factor = device_scale_factor
+            made.append(device_scale_factor)
+
+    monkeypatch.setattr(reel_mod, "PlaywrightRenderer", Recording)
+    reel = Reel(tts=SilentTTS(seconds=1.0), scale=2)
+    reel.add("<h1>a</h1>", "first")
+    reel.render(tmp_path / "out.mp4", ffmpeg="ff", cache=False)
+    assert made == [2]
+
+
+def test_a_renderer_at_another_density_is_refused_before_anything_is_built(monkeypatch, tmp_path):
+    runner = _patch_video_runner(monkeypatch)
+    renderer = FakeRenderer()
+    renderer.device_scale_factor = 1
+    reel = Reel(renderer=renderer, tts=SilentTTS(seconds=1.0), scale=2)
+    reel.add("<h1>a</h1>", "first")
+    with pytest.raises(ValueError, match="device scale factor 1"):
+        reel.render(tmp_path / "out.mp4", ffmpeg="ff")
+    assert not renderer.calls and not runner.commands
+    reel = Reel(renderer=FakeRenderer(), tts=SilentTTS(seconds=1.0), scale=0)
+    reel.add("<h1>a</h1>", "first")
+    with pytest.raises(ValueError, match="scale must be at least 1"):
+        reel.render(tmp_path / "out.mp4", ffmpeg="ff")
