@@ -32,6 +32,17 @@ def test_render_builds_a_segment_per_slide_then_concats(monkeypatch, tmp_path):
     assert "concat" in runner.commands[-1]
 
 
+def test_video_crf_reaches_every_segment_and_defaults_to_none(monkeypatch, tmp_path):
+    runner = _patch_video_runner(monkeypatch)
+    reel = Reel(renderer=FakeRenderer(), tts=SilentTTS(seconds=1.0), video_crf=17)
+    reel.add("<h1>a</h1>", "first")
+    reel.add("<h1>b</h1>", "second")
+    reel.render(tmp_path / "out.mp4", ffmpeg="ff", cache=False)
+    segments = [c for c in runner.commands if "-crf" in c]
+    assert len(segments) == 2 and all(c[c.index("-crf") + 1] == "17" for c in segments)
+    assert Reel().video_crf is None
+
+
 def test_silent_slide_uses_min_duration(monkeypatch, tmp_path):
     runner = _patch_video_runner(monkeypatch)
     reel = Reel(renderer=FakeRenderer(), silent_slide_seconds=3.0)

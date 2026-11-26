@@ -122,6 +122,25 @@ def test_other_geometry_rebuilds_the_segments(runner, tmp_path):
     assert _built(runner) == 3 and len(tts.spoken) == 3
 
 
+def test_another_quality_rebuilds_the_segments(runner, tmp_path):
+    tts = CountingTTS()
+    cache = tmp_path / "cache"
+    _render(_reel(tts), tmp_path, cache)
+    runner.commands.clear()
+    reel = _reel(tts)
+    reel.video_crf = 17
+    _render(reel, tmp_path, cache)
+    assert _built(runner) == 3 and len(tts.spoken) == 3
+    runner.commands.clear()
+    _render(reel, tmp_path, cache)
+    assert _built(runner) == 0
+
+
+def test_the_default_cache_key_is_unchanged_by_the_quality_option():
+    assert cache_mod.encode_key() == cache_mod.ENCODE
+    assert cache_mod.encode_key(16) != cache_mod.ENCODE
+
+
 def test_cache_false_keeps_and_reuses_nothing(runner, tmp_path, monkeypatch):
     monkeypatch.setenv("SLIDECAST_CACHE", str(tmp_path / "env-cache"))
     tts = CountingTTS()

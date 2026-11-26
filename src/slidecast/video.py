@@ -48,6 +48,22 @@ def _segment_audio(out: Path, audio_bitrate: str) -> list[str]:
     return ["-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2"]
 
 
+# The encoder's own default (CRF 23) leaves fine text and thin lines hazy at 1080p (a 3-minute reel came out near
+# 0.4 Mbps). A reel that sets ``crf`` encodes its segments at that constant quality, with the slow preset and a
+# keyframe every KEYFRAME_SECONDS, so the file is a clean source for a platform that re-encodes it.
+QUALITY_PRESET = "slow"
+KEYFRAME_SECONDS = 2
+
+
+def _quality_args(crf: int | None, fps: int) -> list[str]:
+    """The x264 arguments for a constant-quality encode; none (the encoder's defaults) when ``crf`` is None."""
+    if crf is None:
+        return []
+    if not 0 <= crf <= 51:
+        raise ValueError("crf must be between 0 and 51")
+    return ["-crf", str(crf), "-preset", QUALITY_PRESET, "-g", str(round(fps * KEYFRAME_SECONDS))]
+
+
 _REAL_RUN = subprocess.run
 
 # The smallest real image file (a PNG's signature and header chunk alone are 33 bytes).
@@ -76,10 +92,13 @@ def build_segment(
     duration: float | None = None,
     delay: float = 0.0,
     audio_bitrate: str = "192k",
+    crf: int | None = None,
     ffmpeg: str | None = None,
     runner=None,
 ) -> Path:
     """Render one still image + its audio into an H.264 segment: AAC in an MP4, PCM in anything else (.mkv).
+
+    ``crf`` sets a constant-quality encode (see :data:`QUALITY_PRESET`); None keeps the encoder's defaults.
 
     If ``duration`` is given, the segment is exactly that long and the audio is
     padded with silence to fill it (so narration is never clipped). If it's None,
@@ -107,7 +126,7 @@ def build_segment(
         cmd += ["-af", ",".join(afilter)]
     cmd += [
         "-r", str(fps),
-        "-c:v", "libx264", "-tune", "stillimage", "-pix_fmt", "yuv420p",
+        "-c:v", "libx264", "-tune", "stillimage", "-pix_fmt", "yuv420p", *_quality_args(crf, fps),
         "-vf", f"scale={width}:{height}",
         *_segment_audio(out, audio_bitrate),
         str(out),
@@ -149,6 +168,7 @@ def build_clip_segment(
     delay: float = 0.0,
     fps: int = 25,
     audio_bitrate: str = "192k",
+    crf: int | None = None,
     ffmpeg: str | None = None,
     runner=None,
 ) -> Path:
@@ -159,7 +179,7 @@ def build_clip_segment(
     seconds. ``delay`` holds its first frame, silent, for that long before it
     plays. The segment is exactly ``duration`` long, with the narration padded
     by silence to fill it; the clip's own audio is dropped. Encoder settings
-    match :func:`build_segment` (PCM audio unless ``out`` is an MP4), so the two concat cleanly.
+    match :func:`build_segment` (PCM audio unless ``out`` is an MP4; ``crf`` as there), so the two concat cleanly.
     """
     ffmpeg = ffmpeg or find_ffmpeg()
     runner = runner or subprocess.run
@@ -183,7 +203,7 @@ def build_clip_segment(
         "-map", "[v]", "-map", "[a]",
         "-t", f"{duration:.3f}",
         "-r", str(fps),
-        "-c:v", "libx264", "-tune", "stillimage", "-pix_fmt", "yuv420p",
+        "-c:v", "libx264", "-tune", "stillimage", "-pix_fmt", "yuv420p", *_quality_args(crf, fps),
         *_segment_audio(out, audio_bitrate),
         str(out),
     ]

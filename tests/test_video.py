@@ -113,6 +113,35 @@ def test_build_segment_keeps_pcm_audio_outside_an_mp4():
     assert "+faststart" not in cmd
 
 
+def test_segments_keep_the_encoder_defaults_without_a_crf():
+    runner = FakeRunner()
+    build_segment(Path("img.png"), Path("a.wav"), Path("s.mkv"), width=640, height=360, duration=2.0,
+                  ffmpeg="ff", runner=runner)
+    build_clip_segment(Path("c.mp4"), Path("a.wav"), Path("c.mkv"), width=640, height=360, duration=2.0,
+                       ffmpeg="ff", runner=runner)
+    for cmd in runner.commands:
+        assert "-crf" not in cmd and "-preset" not in cmd and "-g" not in cmd
+
+
+def test_a_crf_gives_slide_and_clip_segments_a_slow_constant_quality_encode_with_2s_keyframes():
+    runner = FakeRunner()
+    build_segment(Path("img.png"), Path("a.wav"), Path("s.mkv"), width=1920, height=1080, fps=25, duration=2.0,
+                  crf=17, ffmpeg="ff", runner=runner)
+    build_clip_segment(Path("c.mp4"), Path("a.wav"), Path("c.mkv"), width=1920, height=1080, fps=25, duration=2.0,
+                       crf=17, ffmpeg="ff", runner=runner)
+    for cmd in runner.commands:
+        assert cmd[cmd.index("-crf") + 1] == "17"
+        assert cmd[cmd.index("-preset") + 1] == "slow"
+        assert cmd[cmd.index("-g") + 1] == "50"  # 2 s at 25 fps
+        assert cmd[cmd.index("-pix_fmt") + 1] == "yuv420p"
+
+
+def test_a_crf_outside_x264_range_is_refused():
+    with pytest.raises(ValueError, match="crf"):
+        build_segment(Path("img.png"), Path("a.wav"), Path("s.mkv"), width=640, height=360, duration=2.0,
+                      crf=60, ffmpeg="ff", runner=FakeRunner())
+
+
 def test_concat_writes_listfile_copies_video_and_encodes_audio_once(tmp_path):
     runner = FakeRunner()
     segs = [tmp_path / "a.mkv", tmp_path / "b.mkv"]

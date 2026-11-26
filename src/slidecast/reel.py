@@ -88,6 +88,9 @@ class Reel:
         closing_seconds: How long that closing card holds, silent.
         closing_qr / closing_qr_label: A URL to show as a QR code on the closing card (bottom-right, on a white
             tile so phones scan it), with a short label under it.
+        video_crf: A constant-quality setting (x264 CRF, lower is sharper; 16 to 18 for text-heavy slides) for the
+            segments, with the slow preset and a keyframe every 2 s. None (the default) keeps the encoder's own
+            defaults, which are far too soft for fine text at 1080p.
     """
 
     width: int = 1920
@@ -107,6 +110,7 @@ class Reel:
     closing_seconds: float = 4.0
     closing_qr: str | None = None
     closing_qr_label: str = ""
+    video_crf: int | None = None
     _title: str | None = field(default=None, init=False, repr=False)
     _tagline: str | None = field(default=None, init=False, repr=False)
 
@@ -381,7 +385,8 @@ class Reel:
                         duration, hold = whole - delay, hold + whole - delay - duration
                         key = cache and _cache.digest(
                             "clip", _cache.file_digest(Path(slide.video)), _cache.file_digest(audio),
-                            self.width, self.height, self.fps, duration + delay, hold, delay, _cache.ENCODE)
+                            self.width, self.height, self.fps, duration + delay, hold, delay,
+                            _cache.encode_key(self.video_crf))
                         if key and cache.get_segment(key, seg):
                             if on_cached:
                                 on_cached(i, total, slide)
@@ -390,7 +395,7 @@ class Reel:
                                 slide.video, audio, seg,
                                 width=self.width, height=self.height, fps=self.fps,
                                 duration=duration + delay, hold=hold, delay=delay,
-                                ffmpeg=ffmpeg,
+                                crf=self.video_crf, ffmpeg=ffmpeg,
                             )
                             if key:
                                 cache.put_segment(key, seg)
@@ -407,7 +412,7 @@ class Reel:
                         duration = _on_frames(duration + delay, self.fps)
                     key = cache and _cache.digest(
                         "slide", _cache.file_digest(png), _cache.file_digest(audio),
-                        self.width, self.height, self.fps, duration, delay, _cache.ENCODE)
+                        self.width, self.height, self.fps, duration, delay, _cache.encode_key(self.video_crf))
                     if key and cache.get_segment(key, seg):
                         if on_cached:
                             on_cached(i, total, slide)
@@ -415,7 +420,7 @@ class Reel:
                         _video.build_segment(
                             png, audio, seg,
                             width=self.width, height=self.height, fps=self.fps,
-                            duration=duration, delay=delay, ffmpeg=ffmpeg,
+                            duration=duration, delay=delay, crf=self.video_crf, ffmpeg=ffmpeg,
                         )
                         if key:
                             cache.put_segment(key, seg)

@@ -33,6 +33,13 @@ MAX_BYTES = 2 * 1024 ** 3
 # What the segment builders encode with. A change to video.py's settings goes here, so old segments aren't reused.
 ENCODE = "libx264/stillimage/yuv420p;pcm_s16le/48000/2;aac/192k"
 
+
+
+def encode_key(crf: int | None = None) -> str:
+    """ENCODE, plus the constant-quality setting when a reel asks for one (the default key is unchanged)."""
+    return ENCODE if crf is None else f"{ENCODE};crf{crf}/slow"
+
+
 KINDS = ("audio", "segment")  # the cache's folders
 
 _OFF = {"", "0", "off", "false", "no", "none"}
